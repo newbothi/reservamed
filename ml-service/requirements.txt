@@ -7,4 +7,4 @@ scikit-learn==1.7.2
 joblib==1.5.2
 pyodbc==5.2.0
 aio-pika==9.5.7
-tzdata==2025.2
+tzdata==2026.5
