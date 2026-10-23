@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ReservaMed.UnitTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ReservaMed.Api\ReservaMed.Api.csproj" />
+    <ProjectReference Include="..\..\src\ReservaMed.Contracts\ReservaMed.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

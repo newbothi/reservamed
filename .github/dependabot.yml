@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /api-core
+    schedule: { interval: weekly }
+    groups:
+      dotnet: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directories: [/bff, /portal, /backoffice]
+    schedule: { interval: weekly }
+    groups:
+      npm-menores: { update-types: [minor, patch] }
+  - package-ecosystem: pip
+    directory: /ml-service
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directories: [/bff, /ml-service, /nginx]
+    schedule: { interval: monthly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

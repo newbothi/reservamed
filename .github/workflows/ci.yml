@@ -1,0 +1,208 @@
+# ReservaMed v2 — integración continua (fase 0: base y quality gates).
+# Bloquean el merge: dotnet, node, python, secretos, gitleaks.
+# Informativo en F0 (pasa a bloqueante en F5): seguridad.
+name: CI
+
+on:
+  push:
+    branches: [v2, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  dotnet:
+    name: .NET (build, unitarias, integración)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore api-core/ReservaMed.slnx
+      - name: Build (advertencias visibles)
+        run: dotnet build api-core/ReservaMed.slnx --no-restore -c Release
+      - name: Pruebas unitarias
+        run: >
+          dotnet test api-core/tests/ReservaMed.UnitTests --no-build -c Release
+          --logger "trx;LogFileName=unit.trx" --collect:"XPlat Code Coverage"
+          --results-directory TestResults/unit
+      - name: Pruebas de integración (SQL Server en Testcontainers)
+        run: >
+          dotnet test api-core/tests/ReservaMed.IntegrationTests --no-build -c Release
+          --logger "trx;LogFileName=integration.trx" --collect:"XPlat Code Coverage"
+          --results-directory TestResults/integration
+      - name: Paquetes NuGet vulnerables (informativo)
+        if: always()
+        continue-on-error: true
+        run: dotnet list api-core/ReservaMed.slnx package --vulnerable --include-transitive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dotnet-resultados
+          path: TestResults/
+          retention-days: 14
+
+  node:
+    name: Node (${{ matrix.proyecto }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        proyecto: [bff, portal, backoffice]
+    defaults:
+      run:
+        working-directory: ${{ matrix.proyecto }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.proyecto }}/package-lock.json
+      - run: npm ci
+      - name: Tipos y build
+        run: npm run build
+      - name: Pruebas con cobertura
+        run: npm run test:cov
+      - name: npm audit (informativo)
+        if: always()
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura-${{ matrix.proyecto }}
+          path: ${{ matrix.proyecto }}/coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  python:
+    name: Python (ml-service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ml-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: ml-service/requirements*.txt
+      - name: unixODBC (pyodbc lo necesita para importar)
+        run: sudo apt-get update -q && sudo apt-get install -y -q unixodbc
+      - run: pip install -r requirements-dev.txt
+      - name: Ruff (estilo + reglas de seguridad bandit)
+        run: ruff check . --output-format github
+      - name: Pytest con cobertura
+        run: python -m pytest --cov --cov-report=xml --cov-report=term
+      - name: pip-audit (informativo)
+        if: always()
+        continue-on-error: true
+        run: pip-audit -r requirements.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura-ml
+          path: ml-service/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  secretos:
+    name: Script de secretos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Primera ejecución
+        shell: pwsh
+        run: ./scripts/configurar-secretos.ps1
+      - name: Los .env existen, no tienen BOM y no usan valores publicados
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($f in '.env', 'ml-service/.env') {
+            if (-not (Test-Path $f)) { throw "No se generó $f" }
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $f))
+            if ($bytes[0] -eq 0xEF) { throw "$f tiene BOM: docker compose no lo leería bien" }
+          }
+          $vals = @{}
+          Get-Content .env | Where-Object { $_ -match '^\s*([A-Z_]+)=(.*)$' } | ForEach-Object { $vals[$Matches[1]] = $Matches[2] }
+          foreach ($k in 'SA_PASSWORD','JWT_KEY','ML_API_KEY','RABBIT_USER','RABBIT_PASS') {
+            if (-not $vals[$k]) { throw "Falta $k en .env" }
+          }
+          if ($vals.JWT_KEY.Length -lt 32) { throw 'JWT_KEY demasiado corta' }
+          if ($vals.ML_API_KEY.Length -lt 24) { throw 'ML_API_KEY demasiado corta' }
+          foreach ($v in $vals.Values) {
+            if ($v -in 'dev-ml-key-cambiar','ReservaMed_2026!','guest' -or $v.StartsWith('CAMBIAR')) { throw 'Hay un valor publicado en .env' }
+          }
+          "JWT_KEY=$($vals.JWT_KEY)" | Out-File -FilePath $env:RUNNER_TEMP/primera.txt
+          $sec = dotnet user-secrets list --project api-core/src/ReservaMed.Api
+          if (-not ($sec -match 'Jwt:Key') -or -not ($sec -match 'Ml:ApiKey')) { throw 'user-secrets incompleto' }
+      - name: docker compose acepta el .env generado
+        run: docker compose config -q
+      - name: docker compose se niega a arrancar sin .env
+        run: |
+          mv .env .env.bak
+          if docker compose config -q 2>/dev/null; then echo "compose aceptó la configuración sin secretos"; exit 1; fi
+          mv .env.bak .env
+      - name: -Forzar genera claves nuevas
+        shell: pwsh
+        run: |
+          $antes = Get-Content $env:RUNNER_TEMP/primera.txt
+          ./scripts/configurar-secretos.ps1 -Forzar
+          $despues = (Get-Content .env | Where-Object { $_ -like 'JWT_KEY=*' })
+          if ($antes -eq $despues) { throw 'Con -Forzar la clave JWT debía cambiar' }
+
+  gitleaks:
+    name: Gitleaks (secretos en el historial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Escanear historial completo
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 \
+            git /repo --config /repo/.gitleaks.toml --redact --verbose --exit-code 1
+
+  seguridad:
+    name: Seguridad (informativo en F0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy (dependencias, IaC y Dockerfiles)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Semgrep (SAST)
+        run: |
+          pip install -q semgrep
+          semgrep scan --config p/default --config p/owasp-top-ten --metrics=off --error || true

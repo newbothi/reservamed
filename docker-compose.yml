@@ -1,0 +1,103 @@
+# ReservaMed — levanta todo el sistema:  docker compose up --build
+# Portal: http://localhost   Backoffice: http://localhost/backoffice/   RabbitMQ: http://localhost:15672
+# Antes: scripts/configurar-secretos.ps1 (o copie .env.example a .env y complete los valores).
+# Ningún secreto tiene valor por defecto: si falta uno, compose se detiene con un mensaje.
+
+name: reservamed
+
+x-conexion: &conexion "Server=sqlserver;Database=ReservaMed;User Id=sa;Password=${SA_PASSWORD:?Defina SA_PASSWORD en .env};TrustServerCertificate=True"
+x-conexion-odbc: &conexion_odbc "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;UID=sa;PWD=${SA_PASSWORD:?Defina SA_PASSWORD en .env};TrustServerCertificate=yes"
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:?Defina SA_PASSWORD en .env}
+      MSSQL_PID: Developer
+      TZ: America/Santiago
+    ports: ["1433:1433"]
+    volumes: [sqldata:/var/opt/mssql]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      retries: 12
+      start_period: 20s
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver: { condition: service_healthy }
+    environment:
+      SA_PASSWORD: ${SA_PASSWORD:?Defina SA_PASSWORD en .env}
+    volumes: ["./db:/scripts:ro"]
+    entrypoint: ["/bin/bash", "/scripts/init.sh"]
+    restart: "no"
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:?Defina RABBIT_USER en .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS:?Defina RABBIT_PASS en .env}
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  api-core:
+    build: { context: ./api-core, dockerfile: Dockerfile.api }
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__ReservaMed: *conexion
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Usuario: ${RABBIT_USER}
+      RabbitMq__Clave: ${RABBIT_PASS}
+      Jwt__Key: ${JWT_KEY:?Defina JWT_KEY en .env}
+      Webpay__UrlPagoMock: http://localhost/webpay-mock/pagar
+      Webpay__ReturnUrl: http://localhost/pago/retorno
+      Ml__Url: http://ml-service:8000
+      Ml__ApiKey: ${ML_API_KEY:?Defina ML_API_KEY en .env}
+
+  worker:
+    build: { context: ./api-core, dockerfile: Dockerfile.worker }
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      ConnectionStrings__ReservaMed: *conexion
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Usuario: ${RABBIT_USER}
+      RabbitMq__Clave: ${RABBIT_PASS}
+
+  # Machine learning en Python. Sin puertos publicados: sólo la API Core y RabbitMQ lo alcanzan.
+  ml-service:
+    build: ./ml-service
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+    environment:
+      ML_DB: *conexion_odbc
+      ML_RABBIT_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq/
+      ML_API_KEY: ${ML_API_KEY:?Defina ML_API_KEY en .env}
+      ML_BOOTSTRAP: "true"   # primera vez: genera historial sintético y entrena
+    volumes: [modelos:/data/modelos]
+
+  bff:
+    build: ./bff
+    depends_on: [api-core]
+    environment:
+      API_CORE_URL: http://api-core:8080
+      PORT: "3000"
+
+  nginx:
+    build: { context: ., dockerfile: nginx/Dockerfile }
+    depends_on: [bff, api-core]
+    ports: ["80:80"]
+
+volumes:
+  sqldata:
+  modelos:

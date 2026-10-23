@@ -1,0 +1,30 @@
+# Dependencias y compilados
+node_modules/
+dist/
+bin/
+obj/
+.vs/
+*.user
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Secretos: nunca al repositorio (C1)
+.env
+.env.*
+!.env.example
+
+# Artefactos de pruebas y reportes
+TestResults/
+coverage/
+*.trx
+*.coverage
+coverage.xml
+.coverage
+htmlcov/
+playwright-report/
+test-results/
+
+# Modelos entrenados (se regeneran)
+ml-service/modelos/

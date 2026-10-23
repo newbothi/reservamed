@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ReservaMed.Contracts/ReservaMed.Contracts.csproj" />
+    <Project Path="src/ReservaMed.Api/ReservaMed.Api.csproj" />
+    <Project Path="src/ReservaMed.Worker/ReservaMed.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ReservaMed.UnitTests/ReservaMed.UnitTests.csproj" />
+    <Project Path="tests/ReservaMed.IntegrationTests/ReservaMed.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

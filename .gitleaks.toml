@@ -1,0 +1,22 @@
+# Configuración de gitleaks para ReservaMed.
+# Se extienden las reglas por defecto. Sólo se permiten:
+#  - los valores por defecto que estuvieron publicados en la v1: aparecen a propósito en la lista negra
+#    (ValidacionSecretos.ValoresComprometidos) y en las pruebas que verifican que se rechazan;
+#  - las claves de prueba de los proyectos de tests, que no protegen nada real.
+title = "ReservaMed"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Valores comprometidos conocidos y claves de prueba"
+paths = [
+  '''^api-core/tests/''',
+  '''^ml-service/tests/''',
+]
+regexTarget = "match"
+regexes = [
+  '''CAMBIAR-esta-clave-de-desarrollo-ReservaMed-2026-minimo-32-bytes''',
+  '''dev-ml-key-cambiar''',
+  '''ReservaMed_2026!''',
+]
