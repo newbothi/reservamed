@@ -20,9 +20,13 @@ redir=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://localhost/
 tls() { openssl s_client -connect localhost:443 -servername localhost "$@" </dev/null 2>/dev/null | grep -q "^New, TLS\|Protocol *: TLS\|^Protocol version"; }
 for v in tls1_2 tls1_3; do tls "-$v" && bien "C4 acepta $v" || fallo "C4 TLS" "No negocia $v"; done
 for v in tls1 tls1_1; do
-  if openssl s_client -connect localhost:443 -servername localhost "-$v" -cipher 'DEFAULT@SECLEVEL=0' </dev/null 2>&1 | grep -q "Cipher is (NONE)\|alert\|no protocols\|wrong version\|unsupported"; then
+  # Aceptado = el servidor negoció ese protocolo (aparece "New, TLSv1…, Cipher is X" con X ≠ NONE).
+  salida=$(openssl s_client -connect 127.0.0.1:443 -servername localhost "-$v" -cipher 'DEFAULT@SECLEVEL=0' </dev/null 2>&1)
+  if grep -qE "^New, TLSv1(\.1)?, Cipher is [A-Z0-9]" <<<"$salida" && ! grep -q "Cipher is (NONE)" <<<"$salida"; then
+    fallo "C4 TLS antiguo" "Se negoció $v: $(grep -m1 '^New,' <<<"$salida")"
+  else
     bien "C4 rechaza $v"
-  else fallo "C4 TLS antiguo" "Se aceptó $v"; fi
+  fi
 done
 
 # ---------------- M8: cabeceras ----------------
@@ -76,7 +80,8 @@ else
   aud=$("${CURL[@]}" -H "Authorization: Bearer $token" "$BASE/api/auditoria?accion=LOGIN_FALLIDO&top=50")
   for caso in "a4-api@prueba.cl|203.0.113.66|vía NGINX" "a4-bff@prueba.cl|203.0.113.77|vía BFF"; do
     IFS='|' read -r email falsa via <<<"$caso"
-    ip=$(python3 -c 'import sys,json; d=json.loads(sys.argv[1]); print(next((r.get("ip") or "" for r in d if r.get("email")==sys.argv[2]),"NO-REGISTRADO"))' "$aud" "$email")
+    # En LOGIN_FALLIDO el correo intentado queda en "detalle" (no hay usuario autenticado).
+    ip=$(python3 -c 'import sys,json; d=json.loads(sys.argv[1]); print(next((r.get("ip") or "" for r in d if sys.argv[2] in ((r.get("detalle") or "") + (r.get("email") or ""))),"NO-REGISTRADO"))' "$aud" "$email")
     if [[ "$ip" == "NO-REGISTRADO" ]]; then fallo "A4 auditoría" "No quedó registrado el login fallido $via"
     elif [[ "$ip" == "$falsa" ]]; then fallo "A4 IP falsificada" "La auditoría guardó la IP falsa $falsa $via"
     elif [[ "$ip" == 172.30.1.10 || "$ip" == 172.30.1.20 ]]; then fallo "A4 IP del proxy" "Se guardó la IP del proxy ($ip) $via, no la del cliente"

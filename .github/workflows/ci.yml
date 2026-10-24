@@ -225,7 +225,10 @@ jobs:
             nombre=${objetivo%%|*}; url=${objetivo#*|}
             docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
               zaproxy/zap-stable@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 \
-              zap-baseline.py -t "$url" -m 2 -I -J "zap-$nombre.json" -r "zap-$nombre.html" || true
+              zap-baseline.py -t "$url" -m 2 -I -J "zap-$nombre.json" -r "zap-$nombre.html" > "zap/zap-$nombre.log" 2>&1 || true
+            if [ ! -s "zap/zap-$nombre.json" ]; then
+              echo "::warning title=ZAP $nombre sin reporte::$(tail -n 25 "zap/zap-$nombre.log" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            fi
           done
           python3 scripts/ci/anotar.py zap zap/zap-portal.json zap/zap-backoffice.json
       - name: Trivy api-core

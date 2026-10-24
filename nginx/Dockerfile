@@ -15,6 +15,10 @@ COPY backoffice/ ./
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.28-alpine@sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8
+# Parches de seguridad de Alpine publicados después del digest fijado (nginx, OpenSSL).
+# Gate de F1: Trivy sin vulnerabilidades críticas con corrección disponible.
+USER root
+RUN apk upgrade --no-cache
 COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY nginx/seguridad.conf /etc/nginx/snippets/seguridad.conf
 COPY --chmod=755 nginx/05-verificar-certificados.sh /docker-entrypoint.d/05-verificar-certificados.sh

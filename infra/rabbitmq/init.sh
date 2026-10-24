@@ -39,5 +39,7 @@ usuario rm_worker "$RABBIT_WORKER_PASS" "^($E|$D|$COLAS_WORKER)\$" "^($D|$COLAS_
 # ml-service: su cola y su .dlq; write en el DLX por la misma razón.
 usuario rm_ml     "$RABBIT_ML_PASS"     "^($E|$D|$COLAS_ML)\$"     "^($D|$COLAS_ML)\$"     "^($E|$D|$COLAS_ML)\$"
 
-# El administrador no tiene permisos en el vhost de la aplicación.
+# Quien crea un vhost recibe permisos completos sobre él: se los quitamos al administrador,
+# que solo administra (consola) y no puede leer ni publicar eventos de la aplicación.
+req DELETE "/permissions/$VH/$RABBIT_USER"
 echo "RabbitMQ configurado."

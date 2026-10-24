@@ -15,6 +15,9 @@ def esc(texto: str) -> str:
 
 
 def zap(ruta: Path) -> int:
+    if not ruta.is_file():
+        print(f"::error title=ZAP::No se generó {ruta} (ver la anotación con la salida de ZAP)")
+        return 1
     datos = json.loads(ruta.read_text())
     altas = 0
     resumen = []
@@ -33,6 +36,9 @@ def zap(ruta: Path) -> int:
 
 
 def trivy(ruta: Path) -> int:
+    if not ruta.is_file():
+        print(f"::error title=Trivy::No se generó {ruta}")
+        return 1
     datos = json.loads(ruta.read_text())
     criticas = []
     for r in datos.get("Results", []) or []:
