@@ -1,0 +1,31 @@
+# Resuelve el digest de cada imagen base para fijarlas en Dockerfiles y compose (M4).
+# Se ejecuta a mano; Dependabot mantiene los digests actualizados después.
+name: Digests de imágenes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  digests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolver digests
+        run: |
+          for img in \
+            mcr.microsoft.com/dotnet/sdk:10.0 \
+            mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled \
+            mcr.microsoft.com/dotnet/runtime:10.0-noble-chiseled \
+            mcr.microsoft.com/mssql/server:2022-latest \
+            node:22-alpine \
+            python:3.12-slim-bookworm \
+            nginxinc/nginx-unprivileged:1.28-alpine \
+            rabbitmq:4.1-management-alpine \
+            curlimages/curl:8.16.0 \
+            zaproxy/zap-stable:latest
+          do
+            d=$(docker buildx imagetools inspect "$img" --format '{{json .Manifest.Digest}}' 2>&1 | tr -d '"') || true
+            echo "::notice title=digest::$img@$d"
+          done
