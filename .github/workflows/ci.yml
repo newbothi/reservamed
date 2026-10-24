@@ -221,9 +221,9 @@ jobs:
         if: success() || failure()
         run: |
           mkdir -p zap && chmod 777 zap
-          for objetivo in "portal|https://localhost/" "backoffice|https://localhost/backoffice/"; do
+          for objetivo in "portal|https://reservamed.localhost/" "backoffice|https://reservamed.localhost/backoffice/"; do
             nombre=${objetivo%%|*}; url=${objetivo#*|}
-            docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
+            docker run --rm --network host --add-host reservamed.localhost:127.0.0.1 -v "$PWD/zap:/zap/wrk:rw" \
               zaproxy/zap-stable@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 \
               zap-baseline.py -t "$url" -m 2 -I -J "zap-$nombre.json" -r "zap-$nombre.html" > "zap/zap-$nombre.log" 2>&1 || true
             if [ ! -s "zap/zap-$nombre.json" ]; then

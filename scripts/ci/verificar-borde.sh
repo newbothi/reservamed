@@ -29,6 +29,9 @@ for v in tls1 tls1_1; do
   fi
 done
 
+host_ajeno=$("${CURL[@]}" -o /dev/null -w '%{http_code}' -H 'Host: evil.example' "$BASE/")
+[[ "$host_ajeno" == "421" ]] && bien "C4 Host ajeno → 421" || fallo "C4 Host" "Host ajeno devolvió $host_ajeno"
+
 # ---------------- M8: cabeceras ----------------
 cab=$("${CURL[@]}" -D - -o /dev/null "$BASE/")
 for h in "strict-transport-security: max-age=31536000" "content-security-policy: default-src 'self'" \

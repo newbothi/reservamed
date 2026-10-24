@@ -14,7 +14,7 @@ RUN npm ci
 COPY backoffice/ ./
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.28-alpine@sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8
+FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
 # Parches de seguridad de Alpine publicados después del digest fijado (nginx, OpenSSL).
 # Gate de F1: Trivy sin vulnerabilidades críticas con corrección disponible.
 USER root
