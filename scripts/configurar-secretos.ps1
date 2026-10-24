@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Genera los secretos locales de ReservaMed (hallazgo C1: ningún secreto vive en el repositorio).
 

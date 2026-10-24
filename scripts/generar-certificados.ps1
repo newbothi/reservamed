@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Genera los certificados de HTTPS local (C4) y AMQPS interno (M9) con mkcert.
 
