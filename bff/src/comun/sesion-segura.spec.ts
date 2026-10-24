@@ -18,7 +18,9 @@ describe('A1: cookie de sesión sellada', () => {
 
   it('una cookie alterada o de otra clave se ignora', () => {
     const sello = sellar({ rol: 'PACIENTE' }, CLAVE);
-    const alterado = sello.slice(0, -2) + (sello.endsWith('A') ? 'BB' : 'AA');
+    // Se altera un carácter del medio (el último puede codificar solo bits de relleno).
+    const i = Math.floor(sello.length / 2);
+    const alterado = sello.slice(0, i) + (sello[i] === 'A' ? 'B' : 'A') + sello.slice(i + 1);
     expect(abrir(alterado, CLAVE)).toBeNull();
     expect(abrir(sello, randomBytes(32))).toBeNull();
     expect(abrir('basura', CLAVE)).toBeNull();

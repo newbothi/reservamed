@@ -32,4 +32,5 @@ targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['''^api-core/src/ReservaMed\.Api/Modules/Auth/PoliticaContrasenas\.cs$''']
 regexTarget = "line"
-regexes = ['''^\s*("[^"]{1,20}",\s*)+"[^"]{1,20}",?\s*$''']
+# Sin anclas: en el historial gitleaks evalúa la línea del diff (empieza con "+").
+regexes = ['''"password1234", "qwertyuiop12", "reservamed123"''']
