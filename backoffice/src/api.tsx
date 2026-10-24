@@ -1,33 +1,24 @@
-/** Cliente de la API Core. El backoffice no pasa por el BFF: habla directo con /api. */
+/**
+ * Cliente del backoffice. Fase 2 (A1/A2): ya no habla directo con la API ni guarda tokens.
+ * Todo pasa por el BFF en /bff/bo, que guarda la sesión en una cookie HttpOnly sellada y exige
+ * la cabecera X-ReservaMed contra CSRF. El navegador solo conoce quién es el usuario.
+ */
 
 export interface Sesion {
-  token: string;
-  expiraUtc: string;
+  id: number;
   rol: 'RECEPCION' | 'MEDICO' | 'ADMIN' | 'PACIENTE';
   nombre: string;
+  email: string;
   profesionalId: number | null;
   sedeId: number | null;
 }
 
-const CLAVE = 'rm_bo_sesion';
-
-export function leerSesion(): Sesion | null {
-  try {
-    const s = JSON.parse(localStorage.getItem(CLAVE) ?? 'null') as Sesion | null;
-    return s && Date.parse(s.expiraUtc) > Date.now() ? s : null;
-  } catch {
-    return null;
-  }
-}
-
-export function guardarSesion(s: Sesion | null) {
-  try {
-    if (s) localStorage.setItem(CLAVE, JSON.stringify(s));
-    else localStorage.removeItem(CLAVE);
-  } catch {
-    /* sin almacenamiento */
-  }
-}
+/** Usuario de la sesión actual, en memoria (la fuente de verdad es la cookie del BFF). */
+let actual: Sesion | null = null;
+export const leerSesion = () => actual;
+export const fijarSesion = (s: Sesion | null) => {
+  actual = s;
+};
 
 export class ErrorApi extends Error {
   constructor(public status: number, mensaje: string, public codigo?: string) {
@@ -35,24 +26,24 @@ export class ErrorApi extends Error {
   }
 }
 
+export const EVENTO_SESION_TERMINADA = 'rm:bo-sesion-terminada';
+
+/** `ruta` es la de la API ("/api/agenda/...") o una del BFF ("/auth/..."). */
 export async function api<T>(ruta: string, opciones: { metodo?: string; cuerpo?: unknown } = {}): Promise<T> {
-  const sesion = leerSesion();
-  const resp = await fetch(ruta, {
+  const resp = await fetch(`/bff/bo${ruta}`, {
     method: opciones.metodo ?? (opciones.cuerpo !== undefined ? 'POST' : 'GET'),
+    credentials: 'same-origin',
     headers: {
+      'X-ReservaMed': '1',
       ...(opciones.cuerpo !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(sesion ? { Authorization: `Bearer ${sesion.token}` } : {}),
     },
     body: opciones.cuerpo !== undefined ? JSON.stringify(opciones.cuerpo) : undefined,
   });
   if (resp.status === 204) return undefined as T;
   const datos = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    if (resp.status === 401) {
-      guardarSesion(null);
-      if (!ruta.endsWith('/login')) location.reload();
-    }
-    throw new ErrorApi(resp.status, datos?.title ?? `Error ${resp.status}`, datos?.codigo);
+    if (resp.status === 401 && !ruta.startsWith('/auth/')) window.dispatchEvent(new Event(EVENTO_SESION_TERMINADA));
+    throw new ErrorApi(resp.status, datos?.errores?.[0]?.mensaje ?? datos?.title ?? `Error ${resp.status}`, datos?.codigo);
   }
   return datos as T;
 }

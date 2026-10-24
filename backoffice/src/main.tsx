@@ -1,7 +1,8 @@
-import { FormEvent, StrictMode, useState } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
-import { api, guardarSesion, leerSesion, Sesion } from './api';
+import { api, EVENTO_SESION_TERMINADA, fijarSesion, Sesion } from './api';
+import { Login } from './Acceso';
 import Agenda from './paginas/Agenda';
 import Admision from './paginas/Admision';
 import Pacientes from './paginas/Pacientes';
@@ -9,52 +10,33 @@ import Auditoria from './paginas/Auditoria';
 import Modelos from './paginas/Modelos';
 import './estilos.css';
 
-function Login({ alEntrar }: { alEntrar: (s: Sesion) => void }) {
-  const [email, setEmail] = useState('recepcion@reservamed.cl');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-
-  const enviar = async (e: FormEvent) => {
-    e.preventDefault();
-    setError('');
-    try {
-      const s = await api<Sesion>('/api/auth/login', { cuerpo: { email, password } });
-      if (s.rol === 'PACIENTE') {
-        setError('Los pacientes ingresan por el portal web.');
-        return;
-      }
-      guardarSesion(s);
-      alEntrar(s);
-    } catch (err) {
-      setError((err as Error).message);
-    }
+function App() {
+  // undefined: consultando al BFF si hay una sesión viva en la cookie.
+  const [sesion, setSesionEstado] = useState<Sesion | null | undefined>(undefined);
+  const setSesion = (s: Sesion | null) => {
+    fijarSesion(s);
+    setSesionEstado(s);
   };
 
-  return (
-    <main className="contenedor">
-      <form className="tarjeta centrada formulario" onSubmit={enviar}>
-        <h1>Backoffice clínica</h1>
-        <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-        <label>Contraseña<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
-        {error && <p className="error">{error}</p>}
-        <button type="submit">Ingresar</button>
-        <p className="sutil demo">
-          Demo (clave Demo1234!): recepcion@reservamed.cl (Providencia) · recepcion.lc@reservamed.cl (Las Condes) ·
-          dra.soto@reservamed.cl (médico) · admin@reservamed.cl
-        </p>
-      </form>
-    </main>
-  );
-}
+  useEffect(() => {
+    api<{ usuario: Sesion }>('/auth/sesion')
+      .then((r) => setSesion(r.usuario))
+      .catch(() => setSesion(null));
+    const terminar = () => setSesion(null);
+    window.addEventListener(EVENTO_SESION_TERMINADA, terminar);
+    return () => window.removeEventListener(EVENTO_SESION_TERMINADA, terminar);
+  }, []);
 
-function App() {
-  const [sesion, setSesion] = useState<Sesion | null>(leerSesion);
+  if (sesion === undefined) return <main className="contenedor"><p className="sutil">Cargando…</p></main>;
   if (!sesion) return <Login alEntrar={setSesion} />;
 
   const staff = sesion.rol === 'RECEPCION' || sesion.rol === 'ADMIN';
-  const salir = () => {
-    guardarSesion(null);
-    setSesion(null);
+  const salir = async () => {
+    try {
+      await api('/auth/salir', { cuerpo: {} });
+    } finally {
+      setSesion(null);
+    }
   };
 
   return (

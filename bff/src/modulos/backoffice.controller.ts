@@ -6,6 +6,7 @@ import { CoreClient } from '../comun/core-client.service';
 import { GestorSesion, Req as Peticion, Res as Respuesta } from '../comun/gestor-sesion.service';
 import { ZodPipe } from '../comun/util';
 import { cerrarSesion, ResultadoLogin } from './auth.controller';
+import { rutaProxyPermitida } from '../comun/ruta-proxy';
 
 const LoginSchema = z.object({
   email: z.string().trim().toLowerCase().email('Correo no válido'),
@@ -80,12 +81,12 @@ export class BackofficeController {
     @Req() req: Peticion & { method: string; originalUrl: string; body?: unknown },
     @Res() res: Respuesta & { status(c: number): { type(t: string): { send(b: Buffer): unknown } } },
   ) {
-    const destino = req.originalUrl.replace(/^\/bff\/bo/, '');
-    if (!/^\/api\//.test(destino) || /^\/api\/auth(\/|$|\?)/i.test(destino))
-      throw new HttpException({ status: 404, title: 'No encontrado' }, 404);
+    const destino = rutaProxyPermitida(req.originalUrl);
+    if (!destino) throw new HttpException({ status: 404, title: 'No encontrado' }, 404);
 
     const token = await this.sesion.token(req, res, 'backoffice');
     const r = await this.core.reenviar(req.method, destino, token, req.body);
     res.status(r.status).type(r.tipo).send(r.cuerpo);
   }
 }
+

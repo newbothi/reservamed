@@ -8,7 +8,7 @@ title = "ReservaMed"
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Valores comprometidos conocidos y claves de prueba"
 paths = [
   '''^api-core/tests/''',
@@ -23,3 +23,13 @@ regexes = [
   # Clave PÚBLICA del ambiente de integración de Transbank (comercio 597055555532, tarjetas de prueba).
   '''579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C''',
 ]
+
+# Lista pública de contraseñas débiles que la política rechaza (M2). Excepción acotada: solo esa
+# regla, ese archivo y líneas que son una lista de literales cortos entre comillas.
+[[allowlists]]
+description = "Lista de contraseñas comunes de PoliticaContrasenas"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^api-core/src/ReservaMed\.Api/Modules/Auth/PoliticaContrasenas\.cs$''']
+regexTarget = "line"
+regexes = ['''^\s*("[^"]{1,20}",\s*)+"[^"]{1,20}",?\s*$''']

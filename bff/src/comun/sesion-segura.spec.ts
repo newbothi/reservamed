@@ -4,6 +4,7 @@ import { leerConfig } from './config';
 import { abrir, cookie, leerCookies, NOMBRE_COOKIE, sellar } from './cookie-sesion';
 import { revisarCsrf } from './csrf';
 import { GestorSesion } from './gestor-sesion.service';
+import { rutaProxyPermitida } from './ruta-proxy';
 import { bitsEnCero, crearDesafio, resolver, SolucionesUsadas, verificarSolucion } from './pow';
 
 const CLAVE = randomBytes(32);
@@ -128,4 +129,22 @@ describe('Renovación de la sesión en el BFF', () => {
     await expect(gestor.token(req, { append: (_: string, v: string) => cookies.push(v) }, 'portal')).rejects.toThrow();
     expect(cookies.some((c) => c.startsWith('__Host-rm_p=;') && c.includes('Max-Age=0'))).toBe(true);
   });
+});
+
+describe('proxy del backoffice', () => {
+  it('reenvía rutas /api normales con su consulta', () => {
+    expect(rutaProxyPermitida('/bff/bo/api/agenda/dia?fecha=2026-10-24')).toBe('/api/agenda/dia?fecha=2026-10-24');
+    expect(rutaProxyPermitida('/bff/bo/api/ml/modelo/entrenar')).toBe('/api/ml/modelo/entrenar');
+  });
+  it.each([
+    '/bff/bo/api/auth/renovar',
+    '/bff/bo/api/AUTH/cerrar',
+    '/bff/bo/api/../api/auth/renovar',
+    '/bff/bo/api/x/../../health',
+    '/bff/bo/api/%61uth/renovar',
+    '/bff/bo/api/%2e%2e/auth',
+    '/bff/bo/api//auth/renovar',
+    '/bff/bo/api\\auth',
+    '/bff/bo/otra',
+  ])('rechaza %s', (u) => expect(rutaProxyPermitida(u)).toBeNull());
 });

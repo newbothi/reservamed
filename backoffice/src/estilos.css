@@ -182,3 +182,7 @@ button.link { background: none; color: var(--sutil); padding: 0; font-weight: 50
 .pista-h .relleno { height: 100%; background: var(--viz-relleno); border-radius: 0 4px 4px 0; }
 .demanda td { vertical-align: top; }
 .riesgo { white-space: nowrap; }
+
+/* F2: enrolamiento TOTP */
+.qr { display: block; margin: 0.5rem auto; image-rendering: pixelated; background: #fff; padding: 6px; border-radius: 6px; }
+.secreto { display: block; font-size: 1rem; letter-spacing: 0.05em; padding: 0.5rem; word-break: break-all; user-select: all; }
