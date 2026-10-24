@@ -30,7 +30,7 @@ export class GestorSesion {
 
   leer(req: Req, app: App): DatosSesion | null {
     const cookies = leerCookies(req.headers.cookie as string | undefined);
-    const d = abrir<DatosSesion>(cookies[NOMBRE_COOKIE[app]], this.cfg.claveSesion);
+    const d = abrir<DatosSesion>(cookies[NOMBRE_COOKIE[app]], this.cfg.claveSesion, NOMBRE_COOKIE[app]);
     return d && d.sesionExpira > Date.now() ? d : null;
   }
 
@@ -42,7 +42,7 @@ export class GestorSesion {
       sesionExpira: Date.parse(s.sesionExpiraUtc),
       usuario: s.usuario,
     };
-    res.append('Set-Cookie', cookie(NOMBRE_COOKIE[app], sellar(datos, this.cfg.claveSesion), (datos.sesionExpira - Date.now()) / 1000));
+    res.append('Set-Cookie', cookie(NOMBRE_COOKIE[app], sellar(datos, this.cfg.claveSesion, NOMBRE_COOKIE[app]), (datos.sesionExpira - Date.now()) / 1000));
     return datos;
   }
 
@@ -77,7 +77,7 @@ export class GestorSesion {
       this.borrar(res, app);
       throw new UnauthorizedException({ status: 401, title: 'Su sesión expiró. Ingrese nuevamente.' });
     }
-    res.append('Set-Cookie', cookie(NOMBRE_COOKIE[app], sellar(nueva, this.cfg.claveSesion), (nueva.sesionExpira - Date.now()) / 1000));
+    res.append('Set-Cookie', cookie(NOMBRE_COOKIE[app], sellar(nueva, this.cfg.claveSesion, NOMBRE_COOKIE[app]), (nueva.sesionExpira - Date.now()) / 1000));
     return nueva;
   }
 

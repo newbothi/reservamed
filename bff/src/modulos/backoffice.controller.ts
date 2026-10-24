@@ -39,7 +39,7 @@ export class BackofficeController {
     if (r.estado === 'OK' && r.sesion) return { estado: 'OK', usuario: this.sesion.guardar(res, 'backoffice', r.sesion).usuario };
 
     const guardado: DesafioGuardado = { desafio: r.desafio!, estado: r.estado as DesafioGuardado['estado'], expira: Date.now() + 5 * 60_000 };
-    res.append('Set-Cookie', cookie(NOMBRE_DESAFIO, sellar(guardado, this.cfg.claveSesion), 5 * 60));
+    res.append('Set-Cookie', cookie(NOMBRE_DESAFIO, sellar(guardado, this.cfg.claveSesion, NOMBRE_DESAFIO), 5 * 60));
     // En el enrolamiento el secreto se muestra una sola vez para escanearlo con el autenticador.
     return { estado: r.estado, secretoTotp: r.secretoTotp, uriTotp: r.uriTotp };
   }
@@ -47,7 +47,7 @@ export class BackofficeController {
   @Post('auth/totp')
   @HttpCode(200)
   async totp(@Body(new ZodPipe(TotpSchema)) body: z.infer<typeof TotpSchema>, @Req() req: Peticion, @Res({ passthrough: true }) res: Respuesta) {
-    const d = abrir<DesafioGuardado>(leerCookies(req.headers.cookie as string | undefined)[NOMBRE_DESAFIO], this.cfg.claveSesion);
+    const d = abrir<DesafioGuardado>(leerCookies(req.headers.cookie as string | undefined)[NOMBRE_DESAFIO], this.cfg.claveSesion, NOMBRE_DESAFIO);
     if (!d || d.expira < Date.now()) throw new UnauthorizedException({ status: 401, title: 'La verificación expiró. Ingrese nuevamente.', codigo: 'DESAFIO' });
 
     try {

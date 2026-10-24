@@ -11,19 +11,22 @@ const CLAVE = randomBytes(32);
 
 describe('A1: cookie de sesión sellada', () => {
   it('sella y abre; el contenido no es legible', () => {
-    const sello = sellar({ access: 'secreto-jwt', n: 1 }, CLAVE);
+    const sello = sellar({ access: 'secreto-jwt', n: 1 }, CLAVE, NOMBRE_COOKIE.portal);
     expect(sello).not.toContain('secreto-jwt');
-    expect(abrir<{ access: string }>(sello, CLAVE)?.access).toBe('secreto-jwt');
+    expect(abrir<{ access: string }>(sello, CLAVE, NOMBRE_COOKIE.portal)?.access).toBe('secreto-jwt');
   });
 
   it('una cookie alterada o de otra clave se ignora', () => {
-    const sello = sellar({ rol: 'PACIENTE' }, CLAVE);
+    const sello = sellar({ rol: 'PACIENTE' }, CLAVE, NOMBRE_COOKIE.portal);
     // Se altera un carácter del medio (el último puede codificar solo bits de relleno).
     const i = Math.floor(sello.length / 2);
     const alterado = sello.slice(0, i) + (sello[i] === 'A' ? 'B' : 'A') + sello.slice(i + 1);
-    expect(abrir(alterado, CLAVE)).toBeNull();
-    expect(abrir(sello, randomBytes(32))).toBeNull();
-    expect(abrir('basura', CLAVE)).toBeNull();
+    expect(abrir(alterado, CLAVE, NOMBRE_COOKIE.portal)).toBeNull();
+    expect(abrir(sello, randomBytes(32), NOMBRE_COOKIE.portal)).toBeNull();
+    expect(abrir('basura', CLAVE, NOMBRE_COOKIE.portal)).toBeNull();
+    // Un sello del portal no abre como cookie del backoffice ni como desafío TOTP.
+    expect(abrir(sello, CLAVE, NOMBRE_COOKIE.backoffice)).toBeNull();
+    expect(abrir(sello, CLAVE, '__Host-rm_2fa')).toBeNull();
   });
 
   it('la cookie es HttpOnly, Secure, SameSite=Strict y __Host-', () => {

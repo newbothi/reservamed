@@ -174,8 +174,14 @@ function Pedir($nav, [string]$metodo, [string]$ruta, $cuerpo = $null, [hashtable
         }
         $texto = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
         $status = [int]$resp.StatusCode
-        # 429 de NGINX (HTML, sin JSON): se espera y se reintenta una vez.
-        if ($status -eq 429 -and $texto -notmatch '^\s*\{' -and $intento -eq 1) { Start-Sleep -Seconds 15; continue }
+        # 429 de NGINX (HTML) o del limite por IP de la API (LIMITE, 10 por minuto): el limite
+        # funciona; se espera y se reintenta una vez. Un bloqueo de cuenta (BLOQUEADA) no se reintenta.
+        if ($status -eq 429 -and $intento -eq 1 -and $texto -notmatch 'BLOQUEADA') {
+            $espera = if ($texto -match 'LIMITE') { 40 } else { 15 }
+            Info "Limite de solicitudes alcanzado en $ruta; se espera $espera s"
+            Start-Sleep -Seconds $espera
+            continue
+        }
         $setCookie = @()
         $vals = $null
         if ($resp.Headers.TryGetValues('Set-Cookie', [ref]$vals)) { $setCookie = @($vals) }
