@@ -1,0 +1,23 @@
+# Contexto de build de NGINX (raíz del repositorio): solo se necesitan nginx/, portal/ y backoffice/.
+# Todo lo demás queda fuera: es más rápido y ningún secreto viaja al motor de Docker.
+**/node_modules
+**/dist
+**/coverage
+**/.venv
+**/__pycache__
+**/bin
+**/obj
+**/.vs
+.git
+.github
+.env
+.env.*
+**/.env
+certs
+api-core
+ml-service
+bff
+db
+infra
+scripts
+*.md

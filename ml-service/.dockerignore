@@ -4,3 +4,5 @@ __pycache__/
 modelos/
 tests/
 .pytest_cache/
+.ruff_cache/
+.env
