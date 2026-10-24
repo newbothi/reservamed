@@ -73,7 +73,18 @@ def trx(ruta: Path) -> int:
     return 1 if fallidas else 0
 
 
+def gitleaks(ruta: Path) -> int:
+    """Hallazgos de gitleaks (reporte JSON con --redact): regla, archivo, línea y commit; nunca el secreto."""
+    hallazgos = json.loads(ruta.read_text() or "[]") if ruta.exists() else []
+    for h in hallazgos[:25]:
+        print(
+            f"::error file={h.get('File')},line={h.get('StartLine')},title=gitleaks {esc(h.get('RuleID', ''))}::"
+            f"{esc(h.get('File', ''))}:{h.get('StartLine')} commit {str(h.get('Commit', ''))[:8]} ({esc(h.get('Description', ''))})"
+        )
+    return 1 if hallazgos else 0
+
+
 if __name__ == "__main__":
     tipo, *rutas = sys.argv[1:]
-    fn = {"zap": zap, "trivy": trivy, "trx": trx}[tipo]
+    fn = {"zap": zap, "trivy": trivy, "trx": trx, "gitleaks": gitleaks}[tipo]
     sys.exit(max((fn(Path(r)) for r in rutas), default=0))

@@ -198,7 +198,11 @@ jobs:
       - name: Escanear historial completo
         run: |
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 \
-            git /repo --config /repo/.gitleaks.toml --redact --verbose --exit-code 1
+            git /repo --config /repo/.gitleaks.toml --redact --verbose --exit-code 1 \
+            --report-format json --report-path /repo/gitleaks.json
+      - name: Hallazgos como anotaciones
+        if: failure()
+        run: python3 scripts/ci/anotar.py gitleaks gitleaks.json
 
   borde:
     name: Borde (compose, ZAP, Trivy)

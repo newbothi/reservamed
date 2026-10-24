@@ -7,11 +7,12 @@ import Buscar from './paginas/Buscar';
 import Reservar from './paginas/Reservar';
 import MisCitas from './paginas/MisCitas';
 import RetornoPago from './paginas/RetornoPago';
-import { Login, Registro } from './paginas/Acceso';
+import { Login, Registro, VerificarCorreo } from './paginas/Acceso';
 import './estilos.css';
 
 function Privada({ children }: { children: ReactNode }) {
   const { sesion } = useSesion();
+  if (sesion === undefined) return <p className="sutil centrado">Cargando…</p>;
   return sesion ? <>{children}</> : <Navigate to={`/login?volver=${encodeURIComponent(location.pathname + location.search)}`} replace />;
 }
 
@@ -43,6 +44,7 @@ function App() {
             <Route path="/" element={<Buscar />} />
             <Route path="/login" element={<Login />} />
             <Route path="/registro" element={<Registro />} />
+            <Route path="/verificar-correo" element={<VerificarCorreo />} />
             <Route path="/reservar" element={<Privada><Reservar /></Privada>} />
             <Route path="/mis-citas" element={<Privada><MisCitas /></Privada>} />
             <Route path="/pago/retorno" element={<Privada><RetornoPago /></Privada>} />

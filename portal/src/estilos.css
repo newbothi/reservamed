@@ -111,3 +111,11 @@ button.link { background: none; color: var(--sutil); padding: 0; font-weight: 50
   .acciones-cita { align-items: stretch; width: 100%; }
   .tabla { display: block; overflow-x: auto; }
 }
+
+/* F2: medidor de fortaleza de la contraseña y estados de carga */
+.centrado { text-align: center; margin: 3rem auto; }
+.medidor { display: block; font-size: 0.85rem; margin-top: 0.3rem; padding-left: 0.5rem; border-left: 4px solid currentColor; }
+.medidor.n0 { color: var(--error, #b42318); }
+.medidor.n1 { color: var(--alerta, #b54708); }
+.medidor.n2 { color: var(--info, #175cd3); }
+.medidor.n3 { color: var(--ok, #067647); }

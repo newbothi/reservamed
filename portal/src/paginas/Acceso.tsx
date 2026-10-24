@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { api, ErrorApi, formatearRut, Sesion } from '../api';
+import { api, destinoSeguro, ErrorApi, formatearRut, fortaleza, pruebaAntiBots, Usuario } from '../api';
 import { useSesion } from '../sesion';
 import type { Catalogo } from './Buscar';
 
 function useDestino() {
   const [params] = useSearchParams();
-  return params.get('volver') ?? '/mis-citas';
+  return destinoSeguro(params.get('volver'));   // B1: nunca a otro sitio
 }
 
 export function Login() {
@@ -21,15 +21,16 @@ export function Login() {
     e.preventDefault();
     setError('');
     try {
-      const s = await api<Sesion>('/auth/login', { cuerpo: { email, password } });
-      if (s.rol !== 'PACIENTE') {
-        setError('Esta cuenta es del personal de la clínica: ingrese por el backoffice.');
-        return;
-      }
-      entrar(s);
+      const r = await api<{ usuario: Usuario }>('/auth/login', { cuerpo: { email, password } });
+      entrar(r.usuario);
       navegar(destino, { replace: true });
     } catch (err) {
-      setError((err as Error).message);
+      const e = err as ErrorApi;
+      if (e.codigo === 'CORREO_NO_VERIFICADO')
+        setError('Debe activar su cuenta: le reenviamos el enlace a su correo.');
+      else if (e.status === 429)
+        setError('Demasiados intentos. Espere unos minutos antes de volver a intentar.');
+      else setError(e.message);
     }
   };
 
@@ -54,9 +55,8 @@ export function Registro() {
     financiadorId: '', planSaludId: '', tramoFonasa: '', esCarga: false, afiliadoRut: '', afiliadoNombre: '',
   });
   const [errores, setErrores] = useState<string[]>([]);
-  const { entrar } = useSesion();
-  const navegar = useNavigate();
-  const destino = useDestino();
+  const [enviando, setEnviando] = useState(false);
+  const [listo, setListo] = useState('');
 
   useEffect(() => {
     api<Catalogo>('/catalogo').then(setCatalogo).catch(() => {});
@@ -68,10 +68,13 @@ export function Registro() {
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setErrores([]);
+    setEnviando(true);
     try {
-      const s = await api<Sesion>('/auth/registro', {
+      const pow = await pruebaAntiBots();
+      const r = await api<{ mensaje: string }>('/auth/registro', {
         cuerpo: {
           ...f,
+          pow,
           financiadorId: Number(f.financiadorId),
           planSaludId: f.planSaludId ? Number(f.planSaludId) : null,
           tramoFonasa: fin?.tipo === 'FONASA' ? f.tramoFonasa || null : null,
@@ -80,13 +83,27 @@ export function Registro() {
           afiliadoNombre: f.esCarga ? f.afiliadoNombre : null,
         },
       });
-      entrar(s);
-      navegar(destino, { replace: true });
+      setListo(r.mensaje);
     } catch (err) {
       const ea = err as ErrorApi;
       setErrores(ea.detalles?.map((d) => d.mensaje) ?? [ea.message]);
+    } finally {
+      setEnviando(false);
     }
   };
+
+  const fuerza = fortaleza(f.password, f.email);
+
+  // B4: la misma respuesta exista o no una cuenta con ese correo o RUT.
+  if (listo)
+    return (
+      <section className="tarjeta centrada">
+        <h1>Revise su correo</h1>
+        <p>{listo}</p>
+        <p className="sutil">El enlace vence en 24 horas. Si no lo ve, revise la carpeta de spam.</p>
+        <Link className="boton" to="/login">Ir a ingresar</Link>
+      </section>
+    );
 
   return (
     <form className="tarjeta centrada formulario" onSubmit={enviar}>
@@ -105,7 +122,10 @@ export function Registro() {
         <label>Correo<input type="email" value={f.email} onChange={cambiar('email')} required /></label>
         <label>Celular<input value={f.telefono} onChange={cambiar('telefono')} placeholder="+56 9 1234 5678" /></label>
         <label>Comuna<input value={f.comuna} onChange={cambiar('comuna')} /></label>
-        <label>Contraseña<input type="password" value={f.password} onChange={cambiar('password')} minLength={8} required /></label>
+        <label>Contraseña
+          <input type="password" value={f.password} onChange={cambiar('password')} minLength={12} maxLength={128} autoComplete="new-password" required />
+          {f.password && <span className={`medidor n${fuerza.nivel}`}>{fuerza.texto}</span>}
+        </label>
       </div>
 
       <h2>Previsión de salud</h2>
@@ -149,8 +169,34 @@ export function Registro() {
       )}
 
       {errores.map((x) => <p key={x} className="error">{x}</p>)}
-      <button type="submit">Crear cuenta</button>
+      <button type="submit" disabled={enviando}>{enviando ? 'Verificando…' : 'Crear cuenta'}</button>
       <p className="sutil">Sus datos se tratan conforme a la Ley 19.628 y la Ley 20.584.</p>
     </form>
+  );
+}
+
+/** Destino del enlace del correo de activación. El token va en el cuerpo del POST, no en registros. */
+export function VerificarCorreo() {
+  const [params] = useSearchParams();
+  const [estado, setEstado] = useState<'cargando' | 'ok' | 'error'>('cargando');
+  const [mensaje, setMensaje] = useState('');
+
+  useEffect(() => {
+    const token = params.get('token') ?? '';
+    // Saca el token de la barra de direcciones y del historial.
+    window.history.replaceState(null, '', '/verificar-correo');
+    api<{ mensaje: string }>('/auth/verificar-correo', { cuerpo: { token } })
+      .then((r) => { setMensaje(r.mensaje); setEstado('ok'); })
+      .catch((e: Error) => { setMensaje(e.message); setEstado('error'); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <section className="tarjeta centrada">
+      <h1>{estado === 'ok' ? 'Cuenta activada' : estado === 'error' ? 'No pudimos activar la cuenta' : 'Activando…'}</h1>
+      {mensaje && <p>{mensaje}</p>}
+      {estado === 'error' && <p className="sutil">El enlace pudo vencer o ya se usó. Al intentar ingresar le enviaremos uno nuevo.</p>}
+      {estado !== 'cargando' && <Link className="boton" to="/login">Ingresar</Link>}
+    </section>
   );
 }

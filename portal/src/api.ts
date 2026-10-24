@@ -1,58 +1,66 @@
-/** Cliente del BFF. Todas las llamadas del portal pasan por /bff. */
+/**
+ * Cliente del BFF. Todas las llamadas del portal pasan por /bff.
+ * Fase 2 (A1): el navegador ya no guarda ningún token. La sesión vive en una cookie HttpOnly
+ * sellada por el BFF; JavaScript no puede leerla, así que un XSS no puede robarla.
+ * La cabecera X-ReservaMed acompaña cada solicitud: el BFF la exige contra CSRF.
+ */
+import { resolver, type Desafio, type Solucion } from './pow';
 
-export interface Sesion {
-  token: string;
-  expiraUtc: string;
+export interface Usuario {
+  id: number;
   rol: string;
   nombre: string;
+  email: string;
   pacienteId: number | null;
 }
 
-const CLAVE = 'rm_sesion';
-
-export function leerSesion(): Sesion | null {
-  try {
-    const s = JSON.parse(localStorage.getItem(CLAVE) ?? 'null') as Sesion | null;
-    if (!s || Date.parse(s.expiraUtc) < Date.now()) return null;
-    return s;
-  } catch {
-    return null;
-  }
-}
-
-export function guardarSesion(s: Sesion | null) {
-  try {
-    if (s) localStorage.setItem(CLAVE, JSON.stringify(s));
-    else localStorage.removeItem(CLAVE);
-  } catch {
-    /* almacenamiento no disponible */
-  }
-}
-
 export class ErrorApi extends Error {
-  constructor(public status: number, mensaje: string, public detalles?: { campo: string; mensaje: string }[]) {
+  constructor(
+    public status: number,
+    mensaje: string,
+    public detalles?: { campo: string; mensaje: string }[],
+    public codigo?: string,
+  ) {
     super(mensaje);
   }
 }
 
+/** Avisa a la interfaz que la sesión terminó (venció, se revocó o se cerró en otra pestaña). */
+export const EVENTO_SESION_TERMINADA = 'rm:sesion-terminada';
+
 export async function api<T>(ruta: string, opciones: { metodo?: string; cuerpo?: unknown } = {}): Promise<T> {
-  const sesion = leerSesion();
   const resp = await fetch(`/bff${ruta}`, {
     method: opciones.metodo ?? (opciones.cuerpo !== undefined ? 'POST' : 'GET'),
+    credentials: 'same-origin',
     headers: {
+      'X-ReservaMed': '1',
       ...(opciones.cuerpo !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(sesion ? { Authorization: `Bearer ${sesion.token}` } : {}),
     },
     body: opciones.cuerpo !== undefined ? JSON.stringify(opciones.cuerpo) : undefined,
   });
   if (resp.status === 204) return undefined as T;
   const datos = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    if (resp.status === 401 && sesion) guardarSesion(null);
+    if (resp.status === 401 && !ruta.startsWith('/auth/')) window.dispatchEvent(new Event(EVENTO_SESION_TERMINADA));
     const detalle = datos?.errores?.[0]?.mensaje;
-    throw new ErrorApi(resp.status, detalle ?? datos?.title ?? 'Ocurrió un error', datos?.errores);
+    throw new ErrorApi(resp.status, detalle ?? datos?.title ?? 'Ocurrió un error', datos?.errores, datos?.codigo);
   }
   return datos as T;
+}
+
+/** Pide un desafío anti-bots al BFF y lo resuelve en el navegador (≈1 s). */
+export async function pruebaAntiBots(): Promise<Solucion> {
+  return resolver(await api<Desafio>('/pow'));
+}
+
+/**
+ * Hallazgo B1: el parámetro ?volver= solo acepta rutas internas del portal. Se rechaza
+ * "//otro.sitio", "https://…", "/\\otro" y cualquier esquema, para no servir de redirección abierta.
+ */
+export function destinoSeguro(volver: string | null, porDefecto = '/mis-citas'): string {
+  if (!volver) return porDefecto;
+  if (!/^\/(?![/\\])[A-Za-z0-9\-._~%!$&'()*+,;=:@/?]*$/.test(volver)) return porDefecto;
+  return volver;
 }
 
 /* ---------- Formato chileno ---------- */
@@ -99,4 +107,19 @@ export function formatearRut(entrada: string): string {
   if (limpio.length < 2) return limpio;
   const cuerpo = limpio.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${cuerpo}-${limpio.slice(-1)}`;
+}
+
+/**
+ * Indicador de fortaleza (solo orientativo; la política real la aplica la API, M2):
+ * largo, variedad y que no contenga el correo.
+ */
+export function fortaleza(clave: string, email = ''): { nivel: 0 | 1 | 2 | 3; texto: string } {
+  if (clave.length < 12) return { nivel: 0, texto: `Faltan ${12 - clave.length} caracteres (mínimo 12)` };
+  const local = email.split('@')[0]?.toLowerCase();
+  if (local && local.length >= 3 && clave.toLowerCase().includes(local)) return { nivel: 0, texto: 'No use su correo en la contraseña' };
+  const clases = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(clave)).length;
+  const puntos = (clave.length >= 16 ? 2 : 1) + (clases >= 3 ? 1 : 0);
+  if (puntos >= 3) return { nivel: 3, texto: 'Fuerte' };
+  if (puntos === 2) return { nivel: 2, texto: 'Aceptable' };
+  return { nivel: 1, texto: 'Débil: alargue la frase o combine letras, números y símbolos' };
 }

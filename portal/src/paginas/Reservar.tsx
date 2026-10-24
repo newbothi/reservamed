@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
-import { api, clp, fechaLarga, hora } from '../api';
+import { api, clp, fechaLarga, hora, pruebaAntiBots } from '../api';
 import type { CupoElegido } from './Buscar';
 
 interface LineaValorizada {
@@ -46,8 +46,9 @@ export default function Reservar() {
     setEnviando(true);
     setError('');
     try {
+      const pow = await pruebaAntiBots();
       const r = await api<{ citaId: number; estado: string }>('/citas', {
-        cuerpo: { profesionalId: cupo.profesionalId, sedeId: cupo.sedeId, inicio: cupo.inicio, modalidadPago: modalidad },
+        cuerpo: { profesionalId: cupo.profesionalId, sedeId: cupo.sedeId, inicio: cupo.inicio, modalidadPago: modalidad, pow },
       });
       sessionStorage.removeItem('rm_cupo');
       setReservada(r);
