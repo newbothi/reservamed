@@ -16,8 +16,8 @@ jobs:
         run: |
           for img in \
             mcr.microsoft.com/dotnet/sdk:10.0 \
-            mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled \
-            mcr.microsoft.com/dotnet/runtime:10.0-noble-chiseled \
+            mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra \
+            mcr.microsoft.com/dotnet/runtime:10.0-noble-chiseled-extra \
             mcr.microsoft.com/mssql/server:2022-latest \
             node:22-alpine \
             python:3.12-slim-bookworm \
