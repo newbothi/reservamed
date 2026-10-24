@@ -117,6 +117,11 @@ foreach ($l in $contenedores) {
     $servicio = $p[0] -replace '^reservamed-', '' -replace '-\d+$', ''
     $publicado = $p[1] -match '->'
     if ($servicio -eq 'nginx') { Revisar 'A5' $publicado "nginx es el unico que publica: $($p[1])" 'nginx no publica puertos' }
+    elseif ($servicio -eq 'mailpit') {
+        # Fase 2: la bandeja de correos de prueba se publica a proposito, pero solo en este PC.
+        $externos = @($p[1] -split ',\s*' | Where-Object { $_ -match '->' -and $_ -notmatch '^127\.0\.0\.1:' })
+        Revisar 'A5' ($externos.Count -eq 0) "mailpit solo en 127.0.0.1 (bandeja de pruebas): $($p[1])" "mailpit publica fuera de 127.0.0.1: $($p[1])"
+    }
     else { Revisar 'A5' (-not $publicado) "$servicio sin puertos en el host" "$servicio publica puertos: $($p[1])" }
 }
 docker compose exec -T rabbitmq wget -q -T 5 -O /dev/null https://www.google.com 2>$null | Out-Null
