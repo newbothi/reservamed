@@ -26,10 +26,14 @@ public sealed class AdmisionController(ServicioAdmision admision) : ControllerBa
     }
 
     [HttpGet("citas/{id:int}")]
-    public Task<CitaAdmisionDto> Cita(int id) => admision.ObtenerCitaAsync(id);
+    public Task<CitaAdmisionDto> Cita(int id) => admision.ObtenerCitaAsync(User, id);
 
     [HttpPost("citas/{id:int}/valorizar")]
     public Task<ResultadoValorizacion> Valorizar(int id) => admision.ValorizarAsync(User, id);
+
+    /// <summary>C3: desafío de un solo uso para que el lector de huella firme la lectura.</summary>
+    [HttpPost("citas/{id:int}/huella/desafio")]
+    public Task<DesafioHuellaDto> DesafioHuella(int id) => admision.DesafioHuellaAsync(User, id);
 
     [HttpPost("citas/{id:int}/bono")]
     public Task<BonoDto> EmitirBono(int id, EmitirBonoRequest r) => admision.EmitirBonoAsync(User, id, r);

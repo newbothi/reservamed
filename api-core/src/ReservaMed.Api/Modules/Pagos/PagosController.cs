@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Dapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 using ReservaMed.Api.Common;
 using ReservaMed.Api.Integraciones.Bonos;
@@ -30,6 +31,7 @@ public sealed class ServicioPagosWeb(
     IPasarelaWebpay webpay,
     ServicioValorizacion valorizacion,
     IOptions<OpcionesWebpay> opcionesWebpay,
+    PoliticaAcceso politica,
     IAuditoria auditoria,
     ILogger<ServicioPagosWeb> log)
 {
@@ -37,6 +39,7 @@ public sealed class ServicioPagosWeb(
     {
         await using var cn = db.Crear();
         await cn.OpenAsync();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
         ExigirPropia(usuario, c);
 
@@ -67,12 +70,43 @@ public sealed class ServicioPagosWeb(
         await using var cn = db.Crear();
         await cn.OpenAsync();
 
-        var pago = await cn.QuerySingleOrDefaultAsync<(int Id, int CitaId, int Monto, string Estado)>(
-            "SELECT Id, CitaId, Monto, Estado FROM dbo.Pagos WHERE TokenWebpay = @Token", new { Token = token });
+        var pago = await cn.QuerySingleOrDefaultAsync<(int Id, int CitaId, int Monto, string Estado, string? BuyOrder)>(
+            "SELECT Id, CitaId, Monto, Estado, BuyOrder FROM dbo.Pagos WHERE TokenWebpay = @Token AND Medio = 'WEBPAY'",
+            new { Token = token });
         if (pago.Id == 0) throw ReglaNegocioException.NoEncontrado("El pago");
 
         var c = await RepositorioContexto.CargarAsync(cn, pago.CitaId);
         ExigirPropia(usuario, c);
+
+        // A6: idempotencia. El retorno de Webpay puede llegar dos veces (doble clic, recarga, dos
+        // pestañas). Un bloqueo exclusivo por pago, a nivel de sesión SQL, hace que la segunda
+        // confirmación espere a la primera y luego vea el pago ya procesado.
+        var bloqueo = await cn.ExecuteScalarAsync<int>("""
+            DECLARE @r INT;
+            EXEC @r = sp_getapplock @Resource = @Recurso, @LockMode = 'Exclusive',
+                                    @LockOwner = 'Session', @LockTimeout = 30000;
+            SELECT @r;
+            """, new { Recurso = $"pago-webpay-{pago.Id}" });
+        if (bloqueo < 0)
+            throw ReglaNegocioException.Conflicto("El pago se está procesando. Revise Mis citas en un momento.");
+
+        try
+        {
+            return await ConfirmarBloqueadoAsync(cn, usuario, token, pago.Id, pago.Monto, pago.BuyOrder);
+        }
+        finally
+        {
+            await cn.ExecuteAsync("EXEC sp_releaseapplock @Resource = @Recurso, @LockOwner = 'Session'",
+                new { Recurso = $"pago-webpay-{pago.Id}" });
+        }
+    }
+
+    private async Task<PagoConfirmado> ConfirmarBloqueadoAsync(
+        SqlConnection cn, ClaimsPrincipal usuario, string token, int pagoId, int montoRegistrado, string? buyOrder)
+    {
+        var pago = (Id: pagoId, Monto: montoRegistrado, BuyOrder: buyOrder,
+                    Estado: await cn.ExecuteScalarAsync<string>("SELECT Estado FROM dbo.Pagos WHERE Id = @Id", new { Id = pagoId }) ?? "");
+        var c = await RepositorioContexto.CargarAsync(cn, (await cn.ExecuteScalarAsync<int>("SELECT CitaId FROM dbo.Pagos WHERE Id = @Id", new { Id = pagoId })));
 
         if (pago.Estado != "PENDIENTE")
             return await ResumenAsync(cn, c.CitaId, pago.Estado == "AUTORIZADO", "Este pago ya fue procesado.");
@@ -86,6 +120,19 @@ public sealed class ServicioPagosWeb(
                 new { U = r.UltimosDigitos, pago.Id });
             return await ResumenAsync(cn, c.CitaId, false,
                 "El pago fue rechazado. Puede intentarlo de nuevo mientras su reserva siga vigente.");
+        }
+
+        // A6: lo que Webpay dice que se cobró debe ser exactamente lo que se registró al iniciar.
+        // Si no coincide (monto, orden de compra o estado), no se confirma nada y se reversa.
+        var inconsistencias = ValidarRespuesta(r, pago.Monto, pago.BuyOrder);
+        if (inconsistencias.Count > 0)
+        {
+            await webpay.ReversarAsync(token, r.Monto);
+            await cn.ExecuteAsync("UPDATE dbo.Pagos SET Estado = 'ANULADO' WHERE Id = @Id", new { pago.Id });
+            log.LogError("Pago Webpay {Pago} inconsistente ({Detalle}); se reversó", pago.Id, string.Join("; ", inconsistencias));
+            await auditoria.RegistrarAsync("PAGO_INCONSISTENTE", "Pago", pago.Id, string.Join("; ", inconsistencias));
+            return await ResumenAsync(cn, c.CitaId, false,
+                "No pudimos validar el pago con Webpay. El cargo fue reversado; intente nuevamente.");
         }
 
         // Si la reserva expiró mientras el usuario estaba en Webpay, se devuelve el dinero.
@@ -160,9 +207,20 @@ public sealed class ServicioPagosWeb(
         return new PagoConfirmado(aprobado, mensaje, citaId, estado, monto ?? 0, aut, ultimos, folio);
     }
 
+    /// <summary>A6: diferencias entre la respuesta de Webpay y el pago registrado (vacío = coincide).</summary>
+    public static IReadOnlyList<string> ValidarRespuesta(ResultadoWebpay r, int montoRegistrado, string? buyOrderRegistrada)
+    {
+        var errores = new List<string>();
+        if (r.Monto != montoRegistrado) errores.Add($"monto {r.Monto} distinto del registrado {montoRegistrado}");
+        if (!string.Equals(r.BuyOrder, buyOrderRegistrada, StringComparison.Ordinal))
+            errores.Add($"orden de compra {r.BuyOrder} distinta de {buyOrderRegistrada}");
+        if (!string.Equals(r.Estado, "AUTHORIZED", StringComparison.Ordinal)) errores.Add($"estado {r.Estado}");
+        return errores;
+    }
+
     private static void ExigirPropia(ClaimsPrincipal usuario, ContextoCita c)
     {
-        if (usuario.PacienteId() != c.PacienteId) throw ReglaNegocioException.NoEncontrado("La cita");
+        if (usuario.PacienteId() != c.PacienteId) throw PoliticaAcceso.SinAcceso();
     }
 }
 

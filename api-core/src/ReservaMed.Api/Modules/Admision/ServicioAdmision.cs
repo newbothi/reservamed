@@ -57,7 +57,8 @@ public sealed record CitaAdmisionDto(
     string? TramoFonasa, bool EsCarga, bool EsParticular, string? AvisoParticular, string? NumeroConvenio,
     BonoDto? Bono, IReadOnlyList<PagoDto> Pagos);
 
-public sealed record EmitirBonoRequest(bool HuellaVerificada, string? DerivadorRut);
+/// <summary>C3: <paramref name="ComprobanteHuella"/> lo firma el lector biométrico, no el navegador.</summary>
+public sealed record EmitirBonoRequest(string? ComprobanteHuella, string? DerivadorRut);
 
 public enum MedioCaja { POS_DEBITO, POS_CREDITO, EFECTIVO }
 
@@ -75,6 +76,8 @@ public sealed class ServicioAdmision(
     IEmisorBonos emisor,
     ITerminalPos pos,
     ServicioValorizacion valorizacion,
+    PoliticaAcceso politica,
+    VerificadorHuella huellas,
     IAuditoria auditoria,
     ILogger<ServicioAdmision> log)
 {
@@ -181,9 +184,10 @@ public sealed class ServicioAdmision(
         await auditoria.RegistrarAsync("ACTUALIZAR_PREVISION", "Paciente", pacienteId, tipo);
     }
 
-    public async Task<CitaAdmisionDto> ObtenerCitaAsync(int citaId)
+    public async Task<CitaAdmisionDto> ObtenerCitaAsync(ClaimsPrincipal usuario, int citaId)
     {
         await using var cn = db.Crear();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
         var bono = await RepositorioBonos.ActivoDeCitaAsync(cn, citaId);
         var pagos = (await cn.QueryAsync<PagoDto>(
@@ -200,9 +204,25 @@ public sealed class ServicioAdmision(
     public async Task<ResultadoValorizacion> ValorizarAsync(ClaimsPrincipal usuario, int citaId)
     {
         await using var cn = db.Crear();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);   // A3: recepción solo su sede
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
-        ExigirMismaSede(usuario, c);
         return await valorizacion.ValorizarAsync(c);
+    }
+
+    /// <summary>
+    /// C3: pide al servidor un desafío de un solo uso para que el lector de la sede firme la
+    /// lectura de huella de ESTE beneficiario para ESTA cita.
+    /// </summary>
+    public async Task<DesafioHuellaDto> DesafioHuellaAsync(ClaimsPrincipal usuario, int citaId)
+    {
+        await using var cn = db.Crear();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);
+        var c = await RepositorioContexto.CargarAsync(cn, citaId);
+        if (c.Estado != "RESERVADA")
+            throw new ReglaNegocioException($"No se puede emitir bono para una cita en estado {c.Estado}.");
+        if (c.EsParticular)
+            throw new ReglaNegocioException(c.AvisoParticular ?? "Paciente particular: no requiere bono.");
+        return huellas.CrearDesafio(citaId, usuario.UsuarioId(), c.PacienteRut, c.SedeId);
     }
 
     /// <summary>
@@ -213,8 +233,8 @@ public sealed class ServicioAdmision(
     {
         await using var cn = db.Crear();
         await cn.OpenAsync();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);   // A3: recepción solo su sede
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
-        ExigirMismaSede(usuario, c);
 
         if (c.Estado != "RESERVADA")
             throw new ReglaNegocioException(c.Estado == "CONFIRMADA"
@@ -231,8 +251,11 @@ public sealed class ServicioAdmision(
 
         var derivador = string.IsNullOrWhiteSpace(r.DerivadorRut) ? null : Rut.Exigir(r.DerivadorRut, "RUT del médico derivador");
 
+        // C3: la huella la afirma el lector firmado, nunca el navegador.
+        huellas.Exigir(r.ComprobanteHuella, citaId, usuario.UsuarioId(), c.PacienteRut, c.SedeId);
+
         var emitido = await emisor.EmitirAsync(new SolicitudEmision(
-            RepositorioContexto.SolicitudDesde(c), TipoFirma.HUELLA, r.HuellaVerificada, c.RutInstitucion, derivador));
+            RepositorioContexto.SolicitudDesde(c), TipoFirma.HUELLA, true, c.RutInstitucion, derivador));
 
         await using var tx = await cn.BeginTransactionAsync();
         try
@@ -256,8 +279,8 @@ public sealed class ServicioAdmision(
     public async Task AnularBonoAsync(ClaimsPrincipal usuario, int citaId)
     {
         await using var cn = db.Crear();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);   // A3: recepción solo su sede
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
-        ExigirMismaSede(usuario, c);
 
         var bono = await RepositorioBonos.ActivoDeCitaAsync(cn, citaId)
                    ?? throw ReglaNegocioException.NoEncontrado("El bono");
@@ -277,8 +300,8 @@ public sealed class ServicioAdmision(
     {
         await using var cn = db.Crear();
         await cn.OpenAsync();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);   // A3: recepción solo su sede
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
-        ExigirMismaSede(usuario, c);
 
         if (c.Estado != "RESERVADA")
             throw new ReglaNegocioException(c.Estado == "CONFIRMADA"
@@ -358,7 +381,7 @@ public sealed class ServicioAdmision(
         await tx.CommitAsync();
 
         await auditoria.RegistrarAsync("COBRAR", "Cita", citaId, $"{medio} ${monto} aut={voucher?.CodigoAutorizacion}");
-        return await ObtenerCitaAsync(citaId);
+        return await ObtenerCitaAsync(usuario, citaId);
     }
 
     /// <summary>Admite una cita que ya se pagó online (Webpay + bono web).</summary>
@@ -366,8 +389,8 @@ public sealed class ServicioAdmision(
     {
         await using var cn = db.Crear();
         await cn.OpenAsync();
+        await politica.ExigirCitaAsync(usuario, citaId, cn);   // A3: recepción solo su sede
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
-        ExigirMismaSede(usuario, c);
 
         if (c.Estado != "CONFIRMADA") throw new ReglaNegocioException("Sólo se admiten aquí citas ya pagadas online.");
         if (c.FechaHoraInicio.Date != reloj.Hoy) throw new ReglaNegocioException("Sólo se admiten citas del día.");
@@ -380,13 +403,6 @@ public sealed class ServicioAdmision(
         await tx.CommitAsync();
 
         await auditoria.RegistrarAsync("ADMITIR", "Cita", citaId, "pagada online");
-        return await ObtenerCitaAsync(citaId);
-    }
-
-    /// <summary>Recepción trabaja en una sede: no puede admitir pacientes de otra.</summary>
-    private static void ExigirMismaSede(ClaimsPrincipal usuario, ContextoCita c)
-    {
-        if (usuario.Es(Roles.Recepcion) && usuario.SedeId() is int sede && sede != c.SedeId)
-            throw ReglaNegocioException.Prohibido($"Esta cita es en {c.Sede}. Debe admitirla la recepción de esa sede.");
+        return await ObtenerCitaAsync(usuario, citaId);
     }
 }

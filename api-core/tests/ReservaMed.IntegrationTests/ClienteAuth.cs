@@ -71,7 +71,13 @@ public static partial class ClienteAuth
     }
 
     /// <summary>Sesión de administrador compartida por las pruebas que solo leen (auditoría, etc.).</summary>
-    public static async Task<SesionEmitida> AdminAsync(this ApiFactory api) => _admin ??= await api.LoginPersonalAsync("admin@reservamed.cl");
+    public static async Task<SesionEmitida> AdminAsync(this ApiFactory api)
+    {
+        // El access token dura 15 minutos y la suite completa tarda más: se renueva si está por vencer.
+        if (_admin is null || _admin.AccessExpiraUtc < DateTime.UtcNow.AddMinutes(3))
+            _admin = await api.LoginPersonalAsync("admin@reservamed.cl");
+        return _admin;
+    }
 
     /// <summary>
     /// Próximo código válido: la API no acepta dos veces el mismo paso de 30 s (anti-repetición),
@@ -96,14 +102,15 @@ public static partial class ClienteAuth
     public static string CodigoActual(string email) => Totp.Codigo(Autenticadores[email].Secreto, Totp.Paso(DateTimeOffset.UtcNow));
 
     /// <summary>Registra un paciente nuevo, abre el enlace del correo y devuelve sus credenciales.</summary>
-    public static async Task<(string Email, string Clave)> PacienteNuevoAsync(this ApiFactory api, string prefijo)
+    public static async Task<(string Email, string Clave)> PacienteNuevoAsync(
+        this ApiFactory api, string prefijo, int financiadorId = 1, string? tramoFonasa = "B")
     {
         var numero = Random.Shared.Next(30_000_000, 39_999_999);
         var rut = $"{numero}-{Rut.CalcularDv(numero)}";
         var email = $"{prefijo}-{numero}@prueba.cl";
         const string clave = "Una-clave-larga-y-unica-2026";
 
-        var resp = await api.PostAsync("/api/auth/registro", Registro(rut, email, clave));
+        var resp = await api.PostAsync("/api/auth/registro", Registro(rut, email, clave, financiadorId, tramoFonasa));
         Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
         var token = TokenVerificacion(api, email);
         var ok = await api.PostAsync("/api/auth/verificar-correo", new { token });
@@ -111,11 +118,11 @@ public static partial class ClienteAuth
         return (email, clave);
     }
 
-    public static object Registro(string rut, string email, string clave) => new
+    public static object Registro(string rut, string email, string clave, int financiadorId = 1, string? tramoFonasa = "B") => new
     {
         rut, nombres = "Paciente", apellidoPaterno = "Prueba", apellidoMaterno = "Automatizada",
         fechaNacimiento = "1990-05-10", sexo = "F", email, telefono = (string?)null, comuna = "Providencia",
-        password = clave, financiadorId = 1, planSaludId = (int?)null, tramoFonasa = "B",
+        password = clave, financiadorId, planSaludId = (int?)null, tramoFonasa,
         esCarga = false, afiliadoRut = (string?)null, afiliadoNombre = (string?)null
     };
 

@@ -14,6 +14,10 @@ public sealed class ManejadorErrores(ILogger<ManejadorErrores> log, IProblemDeta
             ReglaNegocioException r => (r.Status, r.Message, r.Codigo),
             SqlException s when SqlErrores.EsDuplicado(s) =>
                 (StatusCodes.Status409Conflict, "El registro ya existe o el cupo ya fue tomado.", "CONFLICTO"),
+            // M3, defensa en profundidad: si un dato más largo que la columna escapó a la validación,
+            // es un error del cliente (400), no del servidor.
+            SqlException s when s.Number is 2628 or 8152 =>
+                (StatusCodes.Status400BadRequest, "Uno de los datos es demasiado largo.", Validacion.Codigo),
             _ => (StatusCodes.Status500InternalServerError, "Ocurrió un error inesperado.", "ERROR_INTERNO")
         };
 

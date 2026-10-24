@@ -24,6 +24,7 @@ ValidacionSecretos.Exigir(
     new("Jwt:Key", builder.Configuration["Jwt:Key"], ValidacionSecretos.LargoMinimoClaveJwt),
     new("Ml:ApiKey", builder.Configuration["Ml:ApiKey"], ValidacionSecretos.LargoMinimoApiKey),
     new("Seguridad:TotpClave", builder.Configuration["Seguridad:TotpClave"], ValidacionSecretos.LargoMinimoClaveJwt),
+    new("Huella:Clave", builder.Configuration["Huella:Clave"], ValidacionSecretos.LargoMinimoClaveJwt),
     new("RabbitMq:Clave", builder.Configuration["RabbitMq:Clave"], ValidacionSecretos.LargoMinimoClave, ToleradoEnDesarrollo: true)
 ], builder.Environment.IsDevelopment());
 
@@ -49,12 +50,20 @@ var seguridad = builder.Configuration.GetSection("Seguridad").Get<OpcionesSeguri
 builder.Services.Configure<OpcionesConexionRabbit>(builder.Configuration.GetSection("RabbitMq"));
 builder.Services.Configure<OpcionesWebpay>(builder.Configuration.GetSection("Webpay"));
 builder.Services.Configure<OpcionesPos>(builder.Configuration.GetSection("Pos"));
+builder.Services.Configure<OpcionesHuella>(builder.Configuration.GetSection("Huella"));
 
 // ---------- Infraestructura ----------
 builder.Services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
 builder.Services.AddSingleton<IReloj, RelojChile>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuditoria, ServicioAuditoria>();
+builder.Services.AddSingleton(TimeProvider.System);
+// F3 (C5, A3): autorización por objeto y sede en un solo lugar.
+builder.Services.AddSingleton<PoliticaAcceso>();
+// F3 (C3): comprobantes firmados del lector de huella.
+builder.Services.AddSingleton<VerificadorHuella>();
+// F3 (M3): validación declarativa de cada solicitud.
+builder.Services.AddValidacion();
 
 // ---------- Integraciones externas (mocks intercambiables por clientes reales) ----------
 builder.Services.AddSingleton<IEmisorBonos, ImedMock>();
@@ -132,7 +141,8 @@ builder.Services.AddHostedService<ExpiracionReservasJob>();
 builder.Services.AddHostedService<RecordatoriosJob>();
 
 // ---------- Web ----------
-builder.Services.AddControllers()
+builder.Services.AddControllers(o => o.Filters.Add<FiltroValidacion>())
+    .ConfigureApiBehaviorOptions(o => o.InvalidModelStateResponseFactory = Validacion.DesdeModelState)
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
     .ConfigureApplicationPartManager(m =>
     {

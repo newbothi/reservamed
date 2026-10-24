@@ -53,8 +53,8 @@ public sealed class AgendaController(ServicioAgenda agenda, ISqlConnectionFactor
         int? profesionalId = null;
         if (User.Es(Roles.Medico))
             profesionalId = User.ProfesionalId() ?? throw ReglaNegocioException.Prohibido();
-        else if (User.Es(Roles.Recepcion))
-            sedeId ??= User.SedeId();
+        // A3: recepción ve solo la agenda de su sede, venga lo que venga en sedeId.
+        sedeId = PoliticaAcceso.SedeParaConsulta(User, sedeId);
 
         await using var cn = db.Crear();
         var citas = await cn.QueryAsync<CitaAgendaDto>("""

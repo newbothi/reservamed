@@ -15,7 +15,7 @@ namespace ReservaMed.Api.Integraciones.Fhir;
 [Route("fhir")]
 [Authorize(Roles = Roles.StaffYMedico)]
 [Produces("application/fhir+json")]
-public sealed class FhirController(ISqlConnectionFactory db, IAuditoria auditoria) : ControllerBase
+public sealed class FhirController(ISqlConnectionFactory db, IAuditoria auditoria, PoliticaAcceso politica) : ControllerBase
 {
     private const string SistemaRun = "http://regcivil.cl/Validacion/RUN";
 
@@ -52,6 +52,8 @@ public sealed class FhirController(ISqlConnectionFactory db, IAuditoria auditori
     public async Task<IActionResult> Patient(int id)
     {
         await using var cn = db.Crear();
+        // C5: el médico solo ve pacientes que tienen o tuvieron cita con él.
+        if (!await politica.PuedeVerPacienteAsync(User, id, cn)) return SinAcceso();
         var p = await cn.QuerySingleOrDefaultAsync<FilaPaciente>(
             "SELECT Id, Rut, Nombres, ApellidoPaterno, ApellidoMaterno, FechaNacimiento, Sexo, Email, Telefono FROM dbo.Pacientes WHERE Id = @Id",
             new { Id = id });
@@ -111,6 +113,7 @@ public sealed class FhirController(ISqlConnectionFactory db, IAuditoria auditori
     public async Task<IActionResult> Appointment(int id)
     {
         await using var cn = db.Crear();
+        if (!await politica.PuedeVerCitaAsync(User, id, cn)) return SinAcceso();
         var a = await cn.QuerySingleOrDefaultAsync<FilaCita>("""
             SELECT c.Id, c.Estado, c.FechaHoraInicio AS Inicio, c.FechaHoraFin AS Fin,
                    pa.Id AS PacienteId, pa.Nombres + ' ' + pa.ApellidoPaterno AS Paciente,
@@ -169,6 +172,13 @@ public sealed class FhirController(ISqlConnectionFactory db, IAuditoria auditori
         ContentType = "application/fhir+json; charset=utf-8",
         StatusCode = 200
     };
+
+    /// <summary>Sin acceso o inexistente: misma respuesta, para no revelar qué existe.</summary>
+    private ObjectResult SinAcceso() => new(new
+    {
+        resourceType = "OperationOutcome",
+        issue = new[] { new { severity = "error", code = "forbidden", diagnostics = "Recurso inexistente o sin acceso." } }
+    }) { StatusCode = StatusCodes.Status403Forbidden };
 
     private static object OperationOutcome(string mensaje) => new
     {

@@ -27,7 +27,7 @@ public sealed record RiesgoCitaDto(
 /// </summary>
 [ApiController]
 [Route("api/ml")]
-public sealed class MlController(ClienteMl ml, ISqlConnectionFactory db, IAuditoria auditoria, IReloj reloj) : ControllerBase
+public sealed class MlController(ClienteMl ml, ISqlConnectionFactory db, IAuditoria auditoria, IReloj reloj, PoliticaAcceso politica) : ControllerBase
 {
     [HttpGet("modelo")]
     [Authorize(Roles = Roles.Admin)]
@@ -66,6 +66,8 @@ public sealed class MlController(ClienteMl ml, ISqlConnectionFactory db, IAudito
     public async Task<RiesgoCitaDto> Riesgo(int id)
     {
         await using var cn = db.Crear();
+        // C5: el médico solo ve el riesgo de sus citas; recepción, las de su sede.
+        await politica.ExigirCitaAsync(User, id, cn);
         var fila = await cn.QuerySingleOrDefaultAsync<FilaPrediccion>(
             "SELECT * FROM dbo.PrediccionesCita WHERE CitaId = @Id", new { Id = id });
         if (fila is not null)

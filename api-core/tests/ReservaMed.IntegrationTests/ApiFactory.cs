@@ -18,6 +18,8 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
 {
     // Secretos SOLO de prueba: largos, aleatorios y distintos de cualquier valor publicado.
     public const string ClaveJwtPrueba = "pruebas-integracion-7Gq2xV9mK4tR8wZ1nB6cY3hL5sJ0dF";
+    /// <summary>F3 (C3): clave maestra de los lectores de huella en las pruebas.</summary>
+    public const string ClaveHuellaPrueba = "pruebas-lectores-huella-Hq7Zt2Wm9Kc4Xv8Lp3Rb";
     private const string ApiKeyMlPrueba = "ml-pruebas-integracion-Xp4Lk8Wq2Zr6";
     private const string ClaveRabbitPrueba = "rabbit-pruebas-Nf7Tq3Vb";
     // A5: la API de pruebas entra como rm_api (no sa), así las pruebas verifican los permisos mínimos.
@@ -70,6 +72,7 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         Environment.SetEnvironmentVariable("Seguridad__LoginPorMinutoPorIp", "10000");
         Environment.SetEnvironmentVariable("Seguridad__RenovarPorMinutoPorIp", "10000");
         Environment.SetEnvironmentVariable("Seguridad__UrlPortal", "https://portal.prueba");
+        Environment.SetEnvironmentVariable("Huella__Clave", ClaveHuellaPrueba);
     }
 
     /// <summary>Correos enviados por la API durante las pruebas (verificación de cuenta, avisos).</summary>

@@ -45,6 +45,7 @@ public sealed class ServicioCitas(
     IOptions<ReglasNegocio> reglas,
     IEmisorBonos emisor,
     IPasarelaWebpay webpay,
+    PoliticaAcceso politica,
     IAuditoria auditoria)
 {
     private readonly ReglasNegocio _reglas = reglas.Value;
@@ -66,6 +67,9 @@ public sealed class ServicioCitas(
         }
         else throw ReglaNegocioException.Prohibido();
 
+        // A3: recepción reserva solo en su sede.
+        PoliticaAcceso.ExigirSede(usuario, r.SedeId);
+
         // Pago online sólo tiene sentido en el portal; recepción reserva y se paga en caja.
         var modalidad = canal == "WEB" ? r.ModalidadPago : ModalidadPago.EN_CLINICA;
 
@@ -74,13 +78,27 @@ public sealed class ServicioCitas(
 
         await using var cn = db.Crear();
         await cn.OpenAsync();
+        await using var tx = await cn.BeginTransactionAsync();
+
+        // B3: las reglas por paciente (una hora por día con el mismo profesional, máximo de futuras
+        // y de pendientes de pago) se revisan y se aplican de forma atómica. Un bloqueo exclusivo
+        // por paciente, dentro de la transacción, serializa dos reservas simultáneas del mismo
+        // paciente: la segunda espera, ve la primera y se rechaza.
+        var bloqueo = await cn.ExecuteScalarAsync<int>("""
+            DECLARE @r INT;
+            EXEC @r = sp_getapplock @Resource = @Recurso, @LockMode = 'Exclusive',
+                                    @LockOwner = 'Transaction', @LockTimeout = 10000;
+            SELECT @r;
+            """, new { Recurso = $"reserva-paciente-{pacienteId}" }, tx);
+        if (bloqueo < 0)
+            throw ReglaNegocioException.Conflicto("Hay otra reserva en curso para este paciente. Intente de nuevo.");
 
         // Regla: un paciente no puede tener dos citas activas el mismo día con el mismo profesional.
         var duplicada = await cn.ExecuteScalarAsync<int>("""
             SELECT COUNT(1) FROM dbo.Citas
             WHERE PacienteId = @PacienteId AND ProfesionalId = @ProfesionalId AND OcupaCupo = 1
               AND CAST(FechaHoraInicio AS DATE) = CAST(@Inicio AS DATE)
-            """, new { PacienteId = pacienteId, r.ProfesionalId, r.Inicio });
+            """, new { PacienteId = pacienteId, r.ProfesionalId, r.Inicio }, tx);
         if (duplicada > 0)
             throw ReglaNegocioException.Conflicto("Ya tiene una hora con este profesional ese día.");
 
@@ -89,7 +107,7 @@ public sealed class ServicioCitas(
             SELECT COUNT(1) FROM dbo.Citas
             WHERE PacienteId = @PacienteId AND OcupaCupo = 1 AND FechaHoraInicio > @Ahora
               AND Estado IN ('PENDIENTE_PAGO','RESERVADA','CONFIRMADA')
-            """, new { PacienteId = pacienteId, Ahora = ahora });
+            """, new { PacienteId = pacienteId, Ahora = ahora }, tx);
         if (futuras >= 3 && canal == "WEB")
             throw new ReglaNegocioException("Tiene 3 horas pendientes. Anule alguna antes de reservar otra.");
 
@@ -100,7 +118,7 @@ public sealed class ServicioCitas(
             var pendientes = await cn.ExecuteScalarAsync<int>("""
                 SELECT COUNT(1) FROM dbo.Citas
                 WHERE PacienteId = @PacienteId AND Estado = 'PENDIENTE_PAGO' AND OcupaCupo = 1
-                """, new { PacienteId = pacienteId });
+                """, new { PacienteId = pacienteId }, tx);
             if (pendientes >= _reglas.MaxReservasPendientesPago)
                 throw new ReglaNegocioException(
                     $"Tiene {pendientes} reservas esperando pago. Pague o anule alguna antes de reservar otra.",
@@ -110,7 +128,6 @@ public sealed class ServicioCitas(
         var estado = modalidad == ModalidadPago.ONLINE ? "PENDIENTE_PAGO" : "RESERVADA";
         DateTime? expira = modalidad == ModalidadPago.ONLINE ? ahora.AddMinutes(_reglas.MinutosReservaTemporal) : null;
 
-        await using var tx = await cn.BeginTransactionAsync();
         int citaId;
         try
         {
@@ -154,18 +171,15 @@ public sealed class ServicioCitas(
     public async Task<CitaResumenDto> ObtenerAsync(ClaimsPrincipal usuario, int citaId)
     {
         await using var cn = db.Crear();
-        var cita = await cn.QuerySingleOrDefaultAsync<CitaResumenDto>(SqlResumen + " WHERE c.Id = @Id",
-            new { Id = citaId }) ?? throw ReglaNegocioException.NoEncontrado("La cita");
-
-        await ExigirAccesoAsync(cn, usuario, citaId);
-        return cita;
+        await politica.ExigirCitaAsync(usuario, citaId, cn);
+        return await cn.QuerySingleAsync<CitaResumenDto>(SqlResumen + " WHERE c.Id = @Id", new { Id = citaId });
     }
 
     public async Task CancelarAsync(ClaimsPrincipal usuario, int citaId, string? motivo)
     {
         await using var cn = db.Crear();
         await cn.OpenAsync();
-        await ExigirAccesoAsync(cn, usuario, citaId);
+        await politica.ExigirCitaAsync(usuario, citaId, cn);
 
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
         var ahora = reloj.Ahora;
@@ -219,10 +233,9 @@ public sealed class ServicioCitas(
     {
         await using var cn = db.Crear();
         await cn.OpenAsync();
+        // C5/A3: el médico solo cierra sus citas; recepción, las de su sede.
+        await politica.ExigirCitaAsync(usuario, citaId, cn);
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
-
-        if (usuario.Es(Roles.Medico) && usuario.ProfesionalId() != c.ProfesionalId)
-            throw ReglaNegocioException.Prohibido();
 
         var (desde, hacia) = asistio
             ? (new[] { "ADMITIDA" }, "ATENDIDA")
@@ -236,18 +249,6 @@ public sealed class ServicioCitas(
         if (filas == 0) throw ReglaNegocioException.Conflicto("La cita fue modificada por otra persona.");
 
         await auditoria.RegistrarAsync(asistio ? "CITA_ATENDIDA" : "CITA_NO_ASISTIO", "Cita", citaId);
-    }
-
-    private static async Task ExigirAccesoAsync(System.Data.IDbConnection cn, ClaimsPrincipal usuario, int citaId)
-    {
-        if (usuario.Es(Roles.Recepcion) || usuario.Es(Roles.Admin)) return;
-
-        var (pacienteId, profesionalId) = await cn.QuerySingleOrDefaultAsync<(int PacienteId, int ProfesionalId)>(
-            "SELECT PacienteId, ProfesionalId FROM dbo.Citas WHERE Id = @Id", new { Id = citaId });
-
-        var permitido = usuario.Es(Roles.Paciente) ? usuario.PacienteId() == pacienteId
-                      : usuario.Es(Roles.Medico) && usuario.ProfesionalId() == profesionalId;
-        if (!permitido) throw ReglaNegocioException.NoEncontrado("La cita"); // 404 para no revelar que existe
     }
 
     private const string SqlResumen = """
