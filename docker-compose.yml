@@ -12,6 +12,8 @@
 #            los que confía la API para X-Forwarded-For. Solo NGINX publica puertos (80 y 443).
 #   datos  — interna, sin salida a Internet ni puertos publicados: SQL Server, RabbitMQ,
 #            Worker y ml-service. Para inspeccionarlos: docker-compose.depuracion.yml.
+#   correo — API Core y Mailpit (buzón de pruebas). La bandeja se ve SOLO desde este PC:
+#            http://127.0.0.1:8025 (correos de activación de cuenta).
 
 name: reservamed
 
@@ -111,6 +113,12 @@ services:
       RabbitMq__Tls: "true"
       RabbitMq__CaCert: /certs/ca.pem
       Jwt__Key: ${JWT_KEY:?Defina JWT_KEY en .env}
+      # F2: secretos TOTP del personal cifrados con AES-256-GCM (A2); correo de activación (A7).
+      Seguridad__TotpClave: ${TOTP_KEY:?Defina TOTP_KEY en .env (scripts/configurar-secretos.ps1)}
+      Seguridad__UrlPortal: https://reservamed.localhost
+      Correo__Modo: Smtp
+      Correo__Host: mailpit
+      Correo__Puerto: "1025"
       # C2: Webpay real en ambiente de integración de Transbank (tarjetas de prueba).
       Webpay__Modo: Integracion
       Webpay__ReturnUrl: https://reservamed.localhost/pago/retorno
@@ -123,6 +131,7 @@ services:
     networks:
       app: { ipv4_address: 172.30.1.30 }
       datos: {}
+      correo: {}
     volumes: ["./certs/ca.pem:/certs/ca.pem:ro"]
     <<: [*endurecido, *solo_lectura]
 
@@ -183,8 +192,22 @@ services:
       API_CORE_URL: http://api-core:8080
       PORT: "3000"
       TRUSTED_PROXIES: 172.30.1.10   # A4: solo NGINX
+      # F2 (A1): sella la cookie de sesión y firma los desafíos anti-bots.
+      BFF_SESSION_KEY: ${BFF_SESSION_KEY:?Defina BFF_SESSION_KEY en .env (scripts/configurar-secretos.ps1)}
+      BFF_ORIGENES: https://reservamed.localhost,https://localhost
     networks:
       app: { ipv4_address: 172.30.1.20 }
+    <<: [*endurecido, *solo_lectura]
+
+  # Buzón SMTP de pruebas: atrapa todos los correos; no envía nada a Internet.
+  mailpit:
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    environment:
+      MP_MAX_MESSAGES: "500"
+    user: "65534:65534"   # nobody: no necesita root (puertos > 1024, datos en /tmp)
+    networks: [correo]
+    # Solo en la interfaz local del PC: nadie más en la red ve los correos.
+    ports: ["127.0.0.1:8025:8025"]
     <<: [*endurecido, *solo_lectura]
 
   nginx:
@@ -206,6 +229,7 @@ networks:
       config: [{ subnet: 172.30.1.0/24 }]
   datos:
     internal: true
+  correo: {}
 
 volumes:
   sqldata:

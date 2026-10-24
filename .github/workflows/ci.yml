@@ -154,24 +154,29 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($f in '.env', 'ml-service/.env') {
+          foreach ($f in '.env', 'ml-service/.env', 'bff/.env') {
             if (-not (Test-Path $f)) { throw "No se generó $f" }
             $bytes = [IO.File]::ReadAllBytes((Resolve-Path $f))
             if ($bytes[0] -eq 0xEF) { throw "$f tiene BOM: docker compose no lo leería bien" }
           }
           $vals = @{}
           Get-Content .env | Where-Object { $_ -match '^\s*([A-Z_]+)=(.*)$' } | ForEach-Object { $vals[$Matches[1]] = $Matches[2] }
-          foreach ($k in 'SA_PASSWORD','JWT_KEY','ML_API_KEY','RABBIT_USER','RABBIT_PASS') {
+          foreach ($k in 'SA_PASSWORD','JWT_KEY','ML_API_KEY','RABBIT_USER','RABBIT_PASS','TOTP_KEY','BFF_SESSION_KEY') {
             if (-not $vals[$k]) { throw "Falta $k en .env" }
           }
           if ($vals.JWT_KEY.Length -lt 32) { throw 'JWT_KEY demasiado corta' }
           if ($vals.ML_API_KEY.Length -lt 24) { throw 'ML_API_KEY demasiado corta' }
+          foreach ($k in 'TOTP_KEY','BFF_SESSION_KEY') {
+            $b = [Convert]::FromBase64String($vals[$k].Replace('-', '+').Replace('_', '/').PadRight([math]::Ceiling($vals[$k].Length / 4) * 4, '='))
+            if ($b.Length -lt 32) { throw "$k debe tener 32 bytes" }
+          }
+          if ($vals.TOTP_KEY -eq $vals.BFF_SESSION_KEY) { throw 'TOTP_KEY y BFF_SESSION_KEY deben ser distintas' }
           foreach ($v in $vals.Values) {
             if ($v -in 'dev-ml-key-cambiar','ReservaMed_2026!','guest' -or $v.StartsWith('CAMBIAR')) { throw 'Hay un valor publicado en .env' }
           }
           "JWT_KEY=$($vals.JWT_KEY)" | Out-File -FilePath $env:RUNNER_TEMP/primera.txt
           $sec = dotnet user-secrets list --project api-core/src/ReservaMed.Api
-          if (-not ($sec -match 'Jwt:Key') -or -not ($sec -match 'Ml:ApiKey')) { throw 'user-secrets incompleto' }
+          if (-not ($sec -match 'Jwt:Key') -or -not ($sec -match 'Ml:ApiKey') -or -not ($sec -match 'Seguridad:TotpClave')) { throw 'user-secrets incompleto' }
       - name: docker compose acepta el .env generado
         run: docker compose config -q
       - name: docker compose se niega a arrancar sin .env
@@ -242,10 +247,16 @@ jobs:
               exit 1
             fi
           done
-      - name: Verificaciones de borde (C2 C4 A4 A5 M4 M8 M9)
+      - name: Verificaciones de borde (C2 C4 A5 M4 M8 M9)
         run: |
           source "$RUNNER_TEMP/sa.env"
           bash scripts/ci/verificar-borde.sh
+      - name: Verificaciones de la fase 2 (A1 A2 A4 A7 A8 M2 B4; gate de sesión)
+        if: success() || failure()
+        run: |
+          sudo cp certs/ca.pem /usr/local/share/ca-certificates/reservamed-ci.crt
+          sudo update-ca-certificates > /dev/null
+          pwsh -NoProfile -File scripts/verificar-fase2.ps1 -CI
       - name: ZAP baseline (portal y backoffice)
         if: success() || failure()
         run: |

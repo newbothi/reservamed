@@ -135,6 +135,7 @@ describe('proxy del backoffice', () => {
   it('reenvía rutas /api normales con su consulta', () => {
     expect(rutaProxyPermitida('/bff/bo/api/agenda/dia?fecha=2026-10-24')).toBe('/api/agenda/dia?fecha=2026-10-24');
     expect(rutaProxyPermitida('/bff/bo/api/ml/modelo/entrenar')).toBe('/api/ml/modelo/entrenar');
+    expect(rutaProxyPermitida('/bff/bo/fhir/Patient/12')).toBe('/fhir/Patient/12');
   });
   it.each([
     '/bff/bo/api/auth/renovar',

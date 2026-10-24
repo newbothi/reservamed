@@ -1,11 +1,10 @@
 <#
 .SYNOPSIS
-  Verifica en este PC la fase 1 de seguridad (C2 C4 A4 A5 M4 M8 M9) contra el sistema levantado
-  con docker compose, y hace una prueba funcional completa (reserva -> RabbitMQ TLS -> ML -> Worker).
+  Verifica en este PC la fase 1 de seguridad (C2 C4 A5 M4 M8 M9) contra el sistema levantado
+  con docker compose. A4 y la prueba funcional completa estan en verificar-fase2.ps1.
 
 .DESCRIPTION
   Es la version local del job "borde" de CI. No cambia la configuracion: solo consulta.
-  La prueba funcional crea una reserva de prueba para ignacio@demo.cl y al final la anula.
   El resultado queda en verificacion-fase1.txt (en .gitignore) para revisarlo despues.
 
 .EXAMPLE
@@ -142,30 +141,8 @@ foreach ($s in 'api-core', 'worker', 'bff', 'nginx', 'ml-service') {
     Revisar 'M4' ($h -match '^true \[ALL\] \[no-new-privileges:true\]') "${s}: solo lectura, sin capacidades, no-new-privileges" "${s}: $h"
 }
 
-# ---------------------------------------------------------------- A4 IP real
-Seccion 'A4 - IP del cliente en la auditoria'
-function Json([string]$metodo, [string]$url, $cuerpo = $null, [string]$token = $null, [hashtable]$extra = @{}) {
-    $h = @{} + $extra
-    if ($token) { $h['Authorization'] = "Bearer $token" }
-    $p = @{ Method = $metodo; Uri = $url; Headers = $h; ContentType = 'application/json'; UseBasicParsing = $true }
-    if ($null -ne $cuerpo) { $p['Body'] = ($cuerpo | ConvertTo-Json -Compress) }
-    try { return Invoke-RestMethod @p } catch { return $null }
-}
-$sufijo = Get-Random -Minimum 1000 -Maximum 9999
-Json 'POST' "$base/api/auth/login" @{ email = "a4-nginx-$sufijo@prueba.cl"; password = 'x' } $null @{ 'X-Forwarded-For' = '203.0.113.66' } | Out-Null
-Json 'POST' "$base/bff/auth/login" @{ email = "a4-bff-$sufijo@prueba.cl"; password = 'x' } $null @{ 'X-Forwarded-For' = '203.0.113.77' } | Out-Null
-$admin = Json 'POST' "$base/api/auth/login" @{ email = 'admin@reservamed.cl'; password = 'Demo1234!' }
-if (-not $admin) { Falla 'A4' 'No se pudo iniciar sesion como admin' }
-else {
-    $aud = Json 'GET' "$base/api/auditoria?accion=LOGIN_FALLIDO&top=50" $null $admin.token
-    foreach ($c in @(@("a4-nginx-$sufijo@prueba.cl", '203.0.113.66', 'via NGINX'), @("a4-bff-$sufijo@prueba.cl", '203.0.113.77', 'via BFF'))) {
-        $reg = $aud | Where-Object { "$($_.detalle)$($_.email)" -like "*$($c[0])*" } | Select-Object -First 1
-        if (-not $reg) { Falla 'A4' "No se registro el login fallido $($c[2])" }
-        elseif ($reg.ip -eq $c[1]) { Falla 'A4' "La auditoria guardo la IP falsa $($c[1]) $($c[2])" }
-        elseif ($reg.ip -in '172.30.1.10', '172.30.1.20') { Falla 'A4' "Se guardo la IP del proxy ($($reg.ip)) $($c[2])" }
-        else { Bien 'A4' "IP falsa ignorada $($c[2]); se guardo $($reg.ip)" }
-    }
-}
+# A4 (IP real en la auditoria) se verifica en verificar-fase2.ps1: desde la fase 2 la API ya no
+# se publica y el login del personal pide TOTP.
 
 # ---------------------------------------------------------------- A5 SQL
 Seccion 'A5 - Usuarios de SQL Server'
@@ -179,42 +156,8 @@ Revisar 'A5' (-not ($ses -contains 'sa')) 'Ningun servicio usa sa' 'Un servicio 
 $roles = (docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $sa -C -d ReservaMed -h -1 -W -Q "SET NOCOUNT ON; SELECT r.name + ':' + m.name FROM sys.database_role_members x JOIN sys.database_principals r ON r.principal_id = x.role_principal_id JOIN sys.database_principals m ON m.principal_id = x.member_principal_id WHERE m.name LIKE 'rm[_]%'" 2>&1) -join ' '
 Revisar 'A5' (-not ($roles -match 'db_owner')) 'Ningun usuario de servicio es db_owner' "Hay un usuario de servicio db_owner: $roles"
 
-# ---------------------------------------------------------------- Prueba funcional
-Seccion 'Prueba funcional: reserva -> RabbitMQ (TLS) -> ML y Worker'
-$paciente = Json 'POST' "$base/bff/auth/login" @{ email = 'ignacio@demo.cl'; password = 'Demo1234!' }
-if (-not $paciente) { Falla 'E2E' 'Login de ignacio@demo.cl por el BFF fallo' }
-else {
-    Bien 'E2E' 'Login del paciente por el BFF'
-    $esps = Json 'GET' "$base/bff/catalogo"
-    $desde = (Get-Date).AddDays(2).ToString('yyyy-MM-dd'); $hasta = (Get-Date).AddDays(12).ToString('yyyy-MM-dd')
-    $cita = $null
-    foreach ($e in @($esps.especialidades | Select-Object -First 4)) {
-        $dias = Json 'GET' "$base/bff/agenda/disponibilidad?especialidadId=$($e.id)&desde=$desde&hasta=$hasta"
-        foreach ($d in @($dias)) { foreach ($p in @($d.profesionales)) { foreach ($h in @($p.horas | Select-Object -Last 2)) {
-            if ($cita) { break }
-            $cita = Json 'POST' "$base/bff/citas" @{ profesionalId = $p.profesionalId; sedeId = $p.sedeId; inicio = $h.inicio.Substring(0, 16); modalidadPago = 'EN_CLINICA' } $paciente.token
-            if ($cita) { Info "Reserva de prueba: cita $($cita.citaId), $($e.nombre), $($h.inicio)" }
-        } } }
-        if ($cita) { break }
-    }
-    if (-not $cita) { Falla 'E2E' 'No se pudo crear una reserva de prueba (sin cupos o regla de negocio)' }
-    else {
-        Bien 'E2E' "Reserva creada por el BFF (cita $($cita.citaId), estado $($cita.estado))"
-        $riesgo = $null
-        for ($i = 0; $i -lt 20 -and -not ($riesgo -and $riesgo.disponible); $i++) {
-            Start-Sleep -Seconds 3
-            $riesgo = Json 'GET' "$base/api/ml/citas/$($cita.citaId)/riesgo" $null $admin.token
-        }
-        Revisar 'E2E' ($riesgo -and $riesgo.disponible) "El ml-service calculo el riesgo por evento AMQPS: $($riesgo.nivel) $([math]::Round(100 * [double]$riesgo.probabilidad))%" 'El riesgo no llego en 60 s (API -> RabbitMQ -> ml-service)'
-        $logW = (docker compose logs --since 3m worker 2>&1) -join "`n"
-        Revisar 'E2E' ($logW -match 'EMAIL a') 'El Worker recibio el evento y genero la notificacion' 'El Worker no registro la notificacion'
-        $logA = (docker compose logs api-core 2>&1) -join "`n"
-        Revisar 'M9' ($logA -match 'Conectado a RabbitMQ en rabbitmq:5671 \(vhost reservamed, TLS True\)') 'La API publica por AMQPS (5671, vhost reservamed)' 'La API no muestra conexion TLS a RabbitMQ'
-        $anul = $null
-        try { Invoke-WebRequest -Method POST -Uri "$base/bff/citas/$($cita.citaId)/cancelar" -Headers @{ Authorization = "Bearer $($paciente.token)" } -ContentType 'application/json' -Body '{"motivo":"verificacion fase 1"}' -UseBasicParsing | Out-Null; $anul = $true } catch { $anul = $false }
-        Revisar 'E2E' $anul 'Reserva de prueba anulada (limpieza)' 'No se pudo anular la reserva de prueba'
-    }
-}
+# La prueba funcional (reserva -> RabbitMQ TLS -> ML y Worker) esta en verificar-fase2.ps1,
+# porque desde la fase 2 la sesion vive en una cookie del BFF y las reservas piden prueba anti-bots.
 
 # ---------------------------------------------------------------- Resumen
 Seccion 'Resumen'

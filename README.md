@@ -13,12 +13,12 @@ Sistema de reserva de horas médicas con **admisión, bono electrónico y pago**
       React + TS (portal)    React + TS (backoffice)
          /                       /backoffice/
               │                     │
-              ▼                     │
-      BFF NestJS  (/bff)            │
-              │                     │
+              ▼                     ▼
+      BFF NestJS  (/bff)     (/bff/bo: login con TOTP + proxy)
+              │   sesión en cookie HttpOnly sellada
               └──────────┬──────────┘
                          ▼
-               API Core ASP.NET Core (/api, /fhir)
+               API Core ASP.NET Core (interna: /api, /fhir)
           (Agenda · Citas · Admisión · Pagos · Auditoría)
           │              │          │          │
      SQL Server       RabbitMQ      │     Integraciones (mock)
@@ -34,7 +34,7 @@ Sistema de reserva de horas médicas con **admisión, bono electrónico y pago**
 |---|---|
 | `db/` | Scripts SQL Server: esquema + datos demo |
 | `api-core/` | Solución .NET 10 (`ReservaMed.slnx`): `Api`, `Worker`, `Contracts` |
-| `bff/` | Backend for Frontend en NestJS + Zod (sólo para el portal) |
+| `bff/` | Backend for Frontend en NestJS + Zod: sesión de portal y backoffice, CSRF, prueba anti-bots |
 | `ml-service/` | Machine learning en Python: FastAPI, scikit-learn, consumidor RabbitMQ, datos sintéticos |
 | `portal/` | Portal de pacientes (React + TS + Vite) |
 | `backoffice/` | Recepción, médicos y administración (React + TS + Vite) |
@@ -43,7 +43,7 @@ Sistema de reserva de horas médicas con **admisión, bono electrónico y pago**
 ### Por qué cada pieza
 
 - **API Core como monolito modular.** Agenda, citas, admisión y pagos comparten transacciones (reservar un cupo, emitir bono y cobrar deben ser consistentes). Separarlos en microservicios agregaría coordinación distribuida sin beneficio a esta escala.
-- **BFF para el portal.** Adapta los datos para el frontend (agrupa cupos por día y profesional, calcula `puedeAnular` / `puedePagar`), cachea catálogos y valida con Zod. El backoffice no lo necesita y habla directo con la API.
+- **BFF como única puerta.** Adapta los datos para el portal (agrupa cupos por día y profesional, calcula `puedeAnular` / `puedePagar`), cachea catálogos y valida con Zod. Desde la fase 2 de seguridad también guarda la sesión de portal y backoffice en una cookie `HttpOnly` sellada: el navegador nunca ve un token, y la API Core ya no se publica.
 - **Outbox + RabbitMQ.** El evento se guarda en la misma transacción que el cambio de estado. Si RabbitMQ está caído, los eventos esperan en la tabla `Outbox`; nada se pierde.
 - **Integraciones detrás de interfaces** (`IEmisorBonos`, `ITerminalPos`, `IPasarelaWebpay`). Cambiar un mock por un cliente real no toca la lógica de negocio.
 
@@ -162,6 +162,18 @@ sintético y entrena el primer modelo (uno o dos minutos).
 | RabbitMQ | Solo AMQPS (TLS) en el puerto 5671 |
 | Contenedores | Sin root, sistema de archivos de solo lectura, sin capacidades, imágenes fijadas por digest |
 
+**Fase 2 de seguridad (identidad y sesión):**
+
+| | |
+|---|---|
+| Sesión | Tokens solo en el BFF, dentro de una cookie `__Host-` HttpOnly, Secure y SameSite=Strict. Token de acceso de 15 minutos con *refresh* rotativo; cerrar sesión o desactivar un usuario revoca la sesión en el acto |
+| Personal | Contraseña + código TOTP (Google/Microsoft Authenticator, 1Password…). **El primer ingreso de cada cuenta muestra un QR para enrolar el autenticador.** Un administrador puede reiniciarlo desde la API (`/api/usuarios/{id}/restablecer-totp`) |
+| Bloqueo | 5 intentos fallidos bloquean la cuenta 1, 2, 4… hasta 60 minutos, además del límite por IP |
+| Registro | Contraseña de 12+ caracteres que no esté filtrada (Have I Been Pwned, k-anonimato) ni contenga su nombre o correo; activación por correo; respuesta idéntica exista o no la cuenta; prueba anti-bots propia (sin Google ni Cloudflare) en registro y reservas; máximo 2 reservas sin pagar |
+| Correo | Los correos de prueba llegan a **Mailpit**: http://127.0.0.1:8025 (solo desde este PC) |
+
+Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
+
 Para inspeccionar la base o la consola de RabbitMQ (solo en `127.0.0.1`):
 
 ```powershell
@@ -173,11 +185,11 @@ SQL Server en `localhost,1433` (usuario `sa`, clave `SA_PASSWORD` del `.env`); R
 
 ## Levantar en local (Visual Studio + Node)
 
-0. **Secretos (una vez):** desde la raíz ejecute `powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1`. Genera claves aleatorias y las guarda en *user-secrets* de .NET (`Jwt:Key`, `Ml:ApiKey`), en `ml-service/.env` y en `.env`. Ninguno de esos archivos se sube a git. Sin este paso la API no arranca y le dice qué falta.
-1. **Base de datos:** ejecute `db/01_schema.sql`, `db/02_seed.sql` y `db/03_ml.sql` en SSMS contra su instancia local. La cadena de conexión por defecto usa `Server=localhost;Trusted_Connection=True`.
+0. **Secretos (una vez):** desde la raíz ejecute `powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1`. Genera claves aleatorias y las guarda en *user-secrets* de .NET (`Jwt:Key`, `Ml:ApiKey`, `Seguridad:TotpClave`), en `ml-service/.env`, `bff/.env` y `.env`. Si ya lo había ejecutado antes de la fase 2, vuelva a ejecutarlo (conserva las claves existentes y agrega las nuevas). Ninguno de esos archivos se sube a git. Sin este paso la API no arranca y le dice qué falta.
+1. **Base de datos:** ejecute `db/01_schema.sql`, `db/02_seed.sql`, `db/03_ml.sql` y `db/05_identidad.sql` en SSMS contra su instancia local (`05_identidad.sql` se puede ejecutar sobre una base existente). En local los correos de activación no se envían: el enlace aparece en el registro de la API. La cadena de conexión por defecto usa `Server=localhost;Trusted_Connection=True`.
 2. **RabbitMQ (opcional):** `docker run -d -p 5672:5672 -p 15672:15672 rabbitmq:4-management-alpine`. Sin RabbitMQ todo funciona igual; sólo no salen notificaciones hasta que el broker esté disponible.
 3. **API Core:** abra `api-core/ReservaMed.slnx` en Visual Studio 2026 y ejecute `ReservaMed.Api` (http://localhost:5080). Opcionalmente ejecute también `ReservaMed.Worker`.
-4. **BFF:** `cd bff && npm install && npm run build && npm start` (puerto 3000).
+4. **BFF:** `cd bff && npm install && npm run build && npm start` (puerto 3000; lee `bff/.env`). Portal y backoffice en desarrollo también pasan por él.
 5. **Portal:** `cd portal && npm install && npm run dev` → http://localhost:5173
 6. **Backoffice:** `cd backoffice && npm install && npm run dev` → http://localhost:5174/backoffice/
 7. **ML (opcional):** ver la sección *Machine learning → Ejecutar en local*. Sin él, todo funciona y el riesgo aparece como "—".
@@ -193,7 +205,7 @@ Cada push y pull request ejecuta `.github/workflows/ci.yml`:
 | `python` | ruff (incluye reglas bandit) y pytest con cobertura | sí |
 | `secretos` | `configurar-secretos.ps1` genera `.env` válidos y distintos en cada ejecución | sí |
 | `gitleaks` | ningún secreto en el historial de git | sí |
-| `borde` | levanta el compose completo con HTTPS; verifica TLS, cabeceras, IP real en la auditoría, puertos cerrados, usuarios por servicio y contenedores sin root; ZAP baseline sin alertas altas; Trivy sin vulnerabilidades críticas en las imágenes | sí |
+| `borde` | levanta el compose completo con HTTPS; verifica TLS, cabeceras, puertos cerrados, usuarios por servicio y contenedores sin root; `verificar-fase2.ps1` (sesión, TOTP, CSRF, registro con Mailpit, IP real en la auditoría y que una cookie robada o revocada no sirva); ZAP baseline sin alertas altas; Trivy sin vulnerabilidades críticas | sí |
 | `seguridad` | Trivy del repositorio, Semgrep, `npm audit`, `pip-audit`, paquetes NuGet vulnerables | informativo hasta F5 |
 
 Para correr las pruebas en local (opcional): `dotnet test api-core/ReservaMed.slnx` (las de integración necesitan Docker), `npm test` en cada proyecto Node y `python -m pytest` en `ml-service`.
@@ -210,6 +222,9 @@ Para correr las pruebas en local (opcional): `dotnet test api-core/ReservaMed.sl
 | `recepcion.lc@reservamed.cl` | Recepción | Sede Las Condes |
 | `dra.soto@reservamed.cl` | Médico | Gastroenterología, ve sólo su agenda |
 | `admin@reservamed.cl` | Admin | Todo + auditoría + bloqueos de agenda |
+
+Las cuentas del personal piden enrolar un autenticador TOTP en su primer ingreso al backoffice.
+`qa@reservamed.cl` es un administrador reservado a las verificaciones automáticas.
 
 **Pruebas rápidas**
 

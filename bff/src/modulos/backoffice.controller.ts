@@ -76,7 +76,7 @@ export class BackofficeController {
    * Proxy autenticado hacia la API Core para el backoffice: /bff/bo/api/... → /api/...
    * NGINX ya no publica /api/ (F2): toda petición del navegador pasa por aquí con la cookie.
    */
-  @All('api/*ruta')
+  @All(['api/*ruta', 'fhir/*ruta'])
   async proxy(
     @Req() req: Peticion & { method: string; originalUrl: string; body?: unknown },
     @Res() res: Respuesta & { status(c: number): { type(t: string): { send(b: Buffer): unknown } } },
