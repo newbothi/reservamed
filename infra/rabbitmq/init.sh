@@ -6,10 +6,14 @@ set -eu
 API="http://rabbitmq:15672/api"
 VH="reservamed"
 
-req() {  # metodo ruta json
+req() {  # metodo ruta json — idempotente: un DELETE de algo que ya no existe (404) no es error
   code=$(curl -s -o /tmp/resp -w '%{http_code}' -u "$RABBIT_USER:$RABBIT_PASS" \
     -H 'content-type: application/json' -X "$1" "$API$2" ${3:+-d "$3"})
-  case "$code" in 2*) ;; *) echo "Error $code en $1 $2: $(cat /tmp/resp)" >&2; exit 1 ;; esac
+  case "$code" in
+    2*) ;;
+    404) [ "$1" = "DELETE" ] || { echo "Error 404 en $1 $2: $(cat /tmp/resp)" >&2; exit 1; } ;;
+    *) echo "Error $code en $1 $2: $(cat /tmp/resp)" >&2; exit 1 ;;
+  esac
 }
 
 usuario() {  # nombre clave configure write read

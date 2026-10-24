@@ -213,6 +213,17 @@ jobs:
           done
           echo "::error title=Arranque::El sistema no quedó listo en 7,5 minutos"
           exit 1
+      - name: Segundo arranque idempotente (db-init y rabbit-init otra vez)
+        run: |
+          docker compose up -d --force-recreate --no-deps db-init rabbit-init
+          for s in db-init rabbit-init; do
+            docker wait "$(docker compose ps -a -q "$s")" >/dev/null
+            code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -a -q "$s")")
+            if [ "$code" != "0" ]; then
+              echo "::error title=Idempotencia $s::Salió con código $code en el segundo arranque: $(docker compose logs --no-color --tail 15 "$s" | tr '\n' ' ')"
+              exit 1
+            fi
+          done
       - name: Verificaciones de borde (C2 C4 A4 A5 M4 M8 M9)
         run: |
           source "$RUNNER_TEMP/sa.env"
