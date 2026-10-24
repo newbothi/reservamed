@@ -24,12 +24,4 @@ regexes = [
   '''579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C''',
 ]
 
-# Lista pública de contraseñas débiles que la política rechaza (M2), agregada en el commit
-# c6258bf9. Excepción acotada a ese commit, ese archivo y esa regla: cualquier cambio
-# posterior del archivo se sigue escaneando.
-[[allowlists]]
-description = "Lista de contraseñas comunes de PoliticaContrasenas"
-targetRules = ["generic-api-key"]
-condition = "AND"
-commits = ["c6258bf94cc69e82e5e9c8a4f160e271f4bc21a9"]
-paths = ['''^api-core/src/ReservaMed\.Api/Modules/Auth/PoliticaContrasenas\.cs$''']
+# Falsos positivos puntuales del historial (huella exacta): ver .gitleaksignore

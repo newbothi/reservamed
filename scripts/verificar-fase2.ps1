@@ -393,7 +393,9 @@ if ($sesionPaciente) {
             if ($vistos.ContainsKey("$($p.profesionalId)") -or -not @($p.horas).Count) { continue }
             $vistos["$($p.profesionalId)"] = $true
             $h = @($p.horas)[-1]
-            $cupos.Add(@{ profesionalId = $p.profesionalId; sedeId = $p.sedeId; inicio = $h.inicio.Substring(0, 16); esp = $e.nombre })
+            # PowerShell 7 convierte las fechas ISO del JSON en DateTime; 5.1 las deja como texto.
+            $ini = if ($h.inicio -is [datetime]) { $h.inicio.ToString('yyyy-MM-ddTHH:mm', [Globalization.CultureInfo]::InvariantCulture) } else { "$($h.inicio)".Substring(0, 16) }
+            $cupos.Add(@{ profesionalId = $p.profesionalId; sedeId = $p.sedeId; inicio = $ini; esp = $e.nombre })
         } }
         if ($cupos.Count -ge 4) { break }
     }

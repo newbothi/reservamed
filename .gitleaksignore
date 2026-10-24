@@ -1,0 +1,3 @@
+# Hallazgos revisados a mano (falsos positivos). Formato: commit:archivo:regla:linea
+# Lista publica de contrasenas debiles que PoliticaContrasenas rechaza (M2): no es un secreto.
+c6258bf94cc69e82e5e9c8a4f160e271f4bc21a9:api-core/src/ReservaMed.Api/Modules/Auth/PoliticaContrasenas.cs:generic-api-key:57
