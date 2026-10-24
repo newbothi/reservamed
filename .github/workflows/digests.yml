@@ -1,9 +1,16 @@
-# Resuelve el digest de cada imagen base para fijarlas en Dockerfiles y compose (M4).
+# Resuelve el digest de imágenes base para fijarlas en Dockerfiles y compose (M4).
 # Se ejecuta a mano; Dependabot mantiene los digests actualizados después.
 name: Digests de imágenes
 
 on:
   workflow_dispatch:
+    inputs:
+      imagenes:
+        description: "Imágenes separadas por espacio"
+        required: true
+      comando:
+        description: "Comando opcional dentro de cada imagen (p. ej. nginx -v)"
+        required: false
 
 permissions:
   contents: read
@@ -13,19 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Resolver digests
+        env:
+          IMAGENES: ${{ inputs.imagenes }}
+          COMANDO: ${{ inputs.comando }}
         run: |
-          for img in \
-            mcr.microsoft.com/dotnet/sdk:10.0 \
-            mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra \
-            mcr.microsoft.com/dotnet/runtime:10.0-noble-chiseled-extra \
-            mcr.microsoft.com/mssql/server:2022-latest \
-            node:22-alpine \
-            python:3.12-slim-bookworm \
-            nginxinc/nginx-unprivileged:1.28-alpine \
-            rabbitmq:4.1-management-alpine \
-            curlimages/curl:8.16.0 \
-            zaproxy/zap-stable:latest
-          do
+          for img in $IMAGENES; do
             d=$(docker buildx imagetools inspect "$img" --format '{{json .Manifest.Digest}}' 2>&1 | tr -d '"') || true
-            echo "::notice title=digest::$img@$d"
+            extra=""
+            if [ -n "$COMANDO" ]; then extra=" | $(docker run --rm --entrypoint sh "$img" -c "$COMANDO" 2>&1 | tr '\n' ' ')"; fi
+            echo "::notice title=digest::$img@$d$extra"
           done
