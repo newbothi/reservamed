@@ -21,8 +21,16 @@ public sealed class ManejadorErrores(ILogger<ManejadorErrores> log, IProblemDeta
             _ => (StatusCodes.Status500InternalServerError, "Ocurrió un error inesperado.", "ERROR_INTERNO")
         };
 
+        // M6: los accesos denegados por objeto (cita o paciente ajeno) también se auditan.
+        if (ex is ReglaNegocioException { Codigo: PoliticaAcceso.CodigoSinAcceso } || status == StatusCodes.Status403Forbidden)
+            await ctx.RequestServices.GetRequiredService<IAuditoria>()
+                .RegistrarAsync("ACCESO_DENEGADO", "Ruta", null, $"{ctx.Request.Method} {AuditarDenegaciones.RutaPlantilla(ctx)}");
+
+        // A9: se registra la PLANTILLA de la ruta ("api/admision/citas/{id:int}"), no la ruta real,
+        // que podría traer datos personales.
         if (status >= 500)
-            log.LogError(ex, "Error no controlado en {Ruta}", ctx.Request.Path);
+            log.LogError(ex, "Error no controlado en {Metodo} {Ruta}", ctx.Request.Method,
+                AuditarDenegaciones.RutaPlantilla(ctx));
 
         ctx.Response.StatusCode = status;
         return await problemDetails.TryWriteAsync(new ProblemDetailsContext

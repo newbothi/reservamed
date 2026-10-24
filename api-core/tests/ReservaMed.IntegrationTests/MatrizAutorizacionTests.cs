@@ -111,7 +111,7 @@ public sealed class MatrizAutorizacionTests(ApiFactory api)
         new("FHIR Patient sin cita del médico", "GET", e => $"/fhir/Patient/{e.OtroPaciente}", null,
             (_, r) => Staff.Contains(r)),
         new("FHIR Practitioner", "GET", e => $"/fhir/Practitioner/{e.ProfesionalMedico}", null, (_, r) => StaffYMedico.Contains(r)),
-        new("Admisión: buscar paciente por RUT", "GET", e => $"/api/admision/pacientes/{e.RutDueno}", null, (_, r) => Staff.Contains(r)),
+        new("Admisión: buscar paciente por RUT", "POST", _ => "/api/admision/pacientes/buscar", e => new { rut = e.RutDueno }, (_, r) => Staff.Contains(r)),
         new("Admisión: actualizar previsión", "PUT", e => $"/api/admision/pacientes/{e.PacienteDueno}/prevision",
             _ => new { financiadorId = 0 }, (_, r) => Staff.Contains(r)),
         Solo("Admisión: crear paciente", "POST", "/api/admision/pacientes", Staff, new { }),
@@ -122,6 +122,7 @@ public sealed class MatrizAutorizacionTests(ApiFactory api)
 
         // ---------- Administración ----------
         Solo("Auditoría", "GET", "/api/auditoria?top=1", [Rol.Admin]),
+        Solo("Integridad de la auditoría", "GET", "/api/auditoria/integridad", [Rol.Admin]),
         Solo("Usuarios", "GET", "/api/usuarios", [Rol.Admin]),
         Solo("Modelo ML", "GET", "/api/ml/modelo", [Rol.Admin]),
         Solo("Demanda ML", "GET", "/api/ml/demanda", [Rol.Admin]),

@@ -182,6 +182,16 @@ sintético y entrena el primer modelo (uno o dos minutos).
 | Validación | Cada solicitud se valida antes de la lógica (FluentValidation): datos inválidos responden 400 con el campo, nunca un error 500 |
 | Reservas | La regla "una hora por día con el mismo profesional" se aplica de forma atómica, también con reservas simultáneas |
 
+**Fase 4 de seguridad (datos y privacidad):**
+
+| | |
+|---|---|
+| Eventos y logs | Los eventos (Outbox y RabbitMQ) llevan solo el id de la cita; el Worker consulta lo necesario con permisos por columna. Logs y registro de envíos con correo y teléfono enmascarados; NGINX no guarda query strings; el RUT se busca por POST, nunca en la URL. Retención: notificaciones 90 días, Outbox 7 días |
+| Auditoría | Solo inserción (permisos + trigger) y cadena de hashes SHA-256: `GET /api/auditoria/integridad` detecta filas alteradas o borradas. Si la auditoría falla, log crítico y `/health` en *Unhealthy*. También se auditan lecturas y accesos denegados |
+| Base de datos | TDE (AES-256) y enmascaramiento dinámico del RUT y la fecha de nacimiento para las cuentas no clínicas. Respaldo cifrado: `scripts\respaldar-base.ps1` (guarde también `SQL_TDE_PASS`) |
+| ml-service | API key comparada en tiempo constante, modelos firmados (HMAC) antes de cargarlos y sin `/docs` en producción |
+| ASVS | Autoevaluación OWASP ASVS 4.0.3 nivel 2 en [`docs/asvs-nivel-2.md`](docs/asvs-nivel-2.md); las brechas quedan asignadas a la fase 5 |
+
 La **matriz rol × endpoint** (cada endpoint con anónimo, dos pacientes, recepción de cada sede, médico y admin) corre en CI y falla si aparece un endpoint sin caso.
 
 Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1` y `scripts\verificar-fase3.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).

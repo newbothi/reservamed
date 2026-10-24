@@ -34,3 +34,6 @@ certs/
 
 # Resultado de scripts/verificar-fase1.ps1
 verificacion-fase*.txt
+
+# F4: respaldos cifrados locales
+respaldos/

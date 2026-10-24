@@ -29,6 +29,16 @@ GRANT UPDATE ON OBJECT::dbo.SeqFolioBono TO rm_api;   -- NEXT VALUE FOR (folio d
 /* Worker: solo registra notificaciones y consulta el riesgo calculado. */
 GRANT INSERT ON dbo.Notificaciones   TO rm_worker;
 GRANT SELECT ON dbo.PrediccionesCita TO rm_worker;
+/* F4 (A9): los eventos ya no traen datos del paciente; el Worker lee SOLO lo necesario para
+   notificar (sin RUT ni fecha de nacimiento) y borra los registros de envío vencidos. */
+GRANT SELECT ON dbo.Citas          TO rm_worker;
+GRANT SELECT ON dbo.Profesionales  TO rm_worker;
+GRANT SELECT ON dbo.Especialidades TO rm_worker;
+GRANT SELECT ON dbo.Sedes          TO rm_worker;
+GRANT SELECT ON dbo.Pacientes (Id, Nombres, Email, Telefono)         TO rm_worker;
+GRANT SELECT ON dbo.Bonos (Id, CitaId, Folio)                         TO rm_worker;
+GRANT SELECT ON dbo.Pagos (Id, CitaId, Medio, Monto, Estado, BonoId) TO rm_worker;
+GRANT SELECT, DELETE ON dbo.Notificaciones TO rm_worker;
 
 /* ml-service en ejecución: lee lo necesario para entrenar y predecir; escribe solo sus tablas. */
 GRANT SELECT ON dbo.Citas               TO rm_ml;

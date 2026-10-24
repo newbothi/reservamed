@@ -48,6 +48,12 @@ async function bootstrap() {
   app.use(middlewareIp);
   // CSRF: la sesión ahora viaja en cookie (F2), así que toda acción exige cabecera propia y origen permitido.
   app.use(middlewareCsrf(cfg.origenes));
+  // F4 (ASVS 8.2.1): las respuestas traen datos de pacientes: ni el navegador ni un proxy las guardan.
+  app.use((_req: unknown, res: { setHeader(n: string, v: string): void }, next: () => void) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    next();
+  });
 
   const puerto = Number(process.env.PORT ?? 3000);
   await app.listen(puerto);

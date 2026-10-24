@@ -86,6 +86,9 @@ $bffKey    = Valor-O-Nuevo $docker "BFF_SESSION_KEY" { Nuevo-Secreto 32 }
 # F3 (C3): clave maestra de los lectores de huella. La comparten la API (valida) y el simulador
 # del lector en el BFF (firma); el navegador nunca la ve.
 $huellaKey = Valor-O-Nuevo $docker "HUELLA_KEY" { Nuevo-Secreto 32 }
+# F4 (M7): clave de la llave maestra de SQL Server (TDE y certificados de respaldo). OJO: si cambia
+# despues de creada la llave, db-init no la reemplaza; los certificados siguen protegidos por la anterior.
+$tdePass   = Valor-O-Nuevo $docker "SQL_TDE_PASS" { "Rm1!" + (Nuevo-Secreto 18) }
 
 # C2: en Docker, Webpay usa el ambiente de INTEGRACION de Transbank. Esta clave es publica
 # (documentacion de Transbank, comercio 597055555532) y solo sirve con tarjetas de prueba.
@@ -138,6 +141,7 @@ Escribir-Env $envDocker (@(
     "SQL_WORKER_PASS=$sqlWorker"
     "SQL_ML_PASS=$sqlMl"
     "SQL_ML_SEED_PASS=$sqlSeed"
+    "SQL_TDE_PASS=$tdePass"
     "RABBIT_API_PASS=$rbApi"
     "RABBIT_WORKER_PASS=$rbWorker"
     "RABBIT_ML_PASS=$rbMl"

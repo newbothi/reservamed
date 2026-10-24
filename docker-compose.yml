@@ -55,6 +55,8 @@ services:
       SQL_WORKER_PASS: ${SQL_WORKER_PASS:?Defina SQL_WORKER_PASS en .env}
       SQL_ML_PASS: ${SQL_ML_PASS:?Defina SQL_ML_PASS en .env}
       SQL_ML_SEED_PASS: ${SQL_ML_SEED_PASS:?Defina SQL_ML_SEED_PASS en .env}
+      # F4 (M7): clave de la llave maestra de SQL Server (TDE y certificados de respaldo).
+      SQL_TDE_PASS: ${SQL_TDE_PASS:?Defina SQL_TDE_PASS en .env (scripts/configurar-secretos.ps1)}
     networks: [datos]
     volumes: ["./db:/scripts:ro"]
     entrypoint: ["/bin/bash", "/scripts/init.sh"]

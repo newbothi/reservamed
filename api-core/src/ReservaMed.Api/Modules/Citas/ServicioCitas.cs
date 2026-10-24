@@ -172,6 +172,7 @@ public sealed class ServicioCitas(
     {
         await using var cn = db.Crear();
         await politica.ExigirCitaAsync(usuario, citaId, cn);
+        if (!usuario.Es(Roles.Paciente)) await auditoria.RegistrarAsync("VER_CITA", "Cita", citaId);   // M6
         return await cn.QuerySingleAsync<CitaResumenDto>(SqlResumen + " WHERE c.Id = @Id", new { Id = citaId });
     }
 
@@ -217,7 +218,7 @@ public sealed class ServicioCitas(
         // Libera también pagos Webpay que quedaron a medio camino.
         await cn.ExecuteAsync("UPDATE dbo.Pagos SET Estado = 'ANULADO' WHERE CitaId = @Id AND Estado = 'PENDIENTE'", new { Id = citaId }, tx);
 
-        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaCancelada, citaId, folio, pagoWeb.Id != 0 ? pagoWeb.Monto : null, motivo);
+        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaCancelada, citaId);
         await tx.CommitAsync();
 
         // Llamadas externas después del commit: si fallan, el estado interno ya es consistente

@@ -64,6 +64,12 @@ class Config:
     bootstrap: bool = field(default_factory=lambda: _bool("ML_BOOTSTRAP", "false"))
     consumir_eventos: bool = field(default_factory=lambda: _bool("ML_CONSUMIR_EVENTOS", "true"))
     zona: str = "America/Santiago"
+    # B2/M5: la documentación interactiva (/docs, /openapi.json) solo existe en desarrollo.
+    entorno: str = field(default_factory=lambda: os.getenv("ML_ENTORNO", "produccion").strip().lower())
+
+    @property
+    def desarrollo(self) -> bool:
+        return self.entorno in ("desarrollo", "development", "dev")
 
 
 config = Config()

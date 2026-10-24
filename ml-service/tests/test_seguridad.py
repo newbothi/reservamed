@@ -76,3 +76,46 @@ def test_amqps_valida_certificado_y_nombre(tmp_path):
     assert ctx.verify_mode == ssl.CERT_REQUIRED
     assert ctx.check_hostname is True
     assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+# ---------- Fase 4 (M5) ----------
+
+def test_api_key_se_compara_en_tiempo_constante():
+    import inspect
+
+    assert "compare_digest" in inspect.getsource(main.exigir_api_key)
+
+
+def test_documentacion_cerrada_fuera_de_desarrollo(cliente):
+    c = cliente(CLAVE_BUENA)
+    assert not main.config.desarrollo
+    for ruta in ("/docs", "/redoc", "/openapi.json"):
+        assert c.get(ruta).status_code == 404
+
+
+def test_modelo_firmado_y_alterado(tmp_path):
+    from app.servicio import firma_valida, firmar_archivo, ruta_firma
+
+    ruta = tmp_path / "inasistencia-prueba.joblib"
+    ruta.write_bytes(b"contenido-del-modelo")
+    firmar_archivo(ruta, CLAVE_BUENA)
+    assert firma_valida(ruta, CLAVE_BUENA)
+
+    assert not firma_valida(ruta, CLAVE_BUENA + "x")          # otra clave
+    ruta.write_bytes(b"contenido-del-modelo-alterado")           # archivo cambiado
+    assert not firma_valida(ruta, CLAVE_BUENA)
+    ruta_firma(ruta).unlink()                                    # sin firma
+    assert not firma_valida(ruta, CLAVE_BUENA)
+
+
+def test_no_carga_un_modelo_sin_firma(tmp_path, monkeypatch):
+    import joblib
+
+    from app import servicio as modulo
+
+    monkeypatch.setattr(modulo, "config", dataclasses.replace(modulo.config, carpeta_modelos=str(tmp_path), api_key=CLAVE_BUENA))
+    joblib.dump({"version": "v-falsa"}, tmp_path / "v-falsa.joblib")
+    s = modulo.ServicioInasistencia()
+    monkeypatch.setattr(s, "metadata_activo", lambda: {"version": "v-falsa"})
+    with pytest.raises(modulo.ModeloNoDisponible):
+        s._modelo()

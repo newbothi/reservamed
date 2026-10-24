@@ -30,6 +30,7 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         ["WORKER_PASS"] = "Rm1!pruebas-Worker-4kT8",
         ["ML_PASS"] = "Rm1!pruebas-Ml-6pZ3",
         ["ML_SEED_PASS"] = "Rm1!pruebas-Seed-2wJ7",
+        ["TDE_PASS"] = "Rm1!pruebas-Tde-8xQ5vL2n",
     };
 
     private readonly MsSqlContainer _sql = new MsSqlBuilder()
@@ -38,6 +39,8 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
 
     /// <summary>Cadena con la que corre la API (usuario rm_api).</summary>
     public string CadenaApi { get; private set; } = "";
+    /// <summary>F4: conexión como sa (solo pruebas que simulan a un atacante con acceso directo a la base).</summary>
+    public string CadenaSa => new SqlConnectionStringBuilder(_sql.GetConnectionString()) { InitialCatalog = "ReservaMed" }.ConnectionString;
 
     public async Task InitializeAsync()
     {
@@ -90,7 +93,7 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         await _sql.DisposeAsync();
     }
 
-    /// <summary>Ejecuta db/01..04 separando los lotes por GO y reemplazando $(VARIABLE), igual que sqlcmd.</summary>
+    /// <summary>Ejecuta db/0*.sql en orden separando los lotes por GO y reemplazando $(VARIABLE), igual que sqlcmd.</summary>
     private async Task EjecutarScriptsAsync()
     {
         var carpetaDb = BuscarCarpetaDb();

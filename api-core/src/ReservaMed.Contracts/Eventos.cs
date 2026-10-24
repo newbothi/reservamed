@@ -17,20 +17,8 @@ public static class TiposEvento
 }
 
 /// <summary>
-/// Carga útil común para los eventos de cita. Lleva lo necesario para notificar
-/// sin que el consumidor tenga que volver a consultar la base de datos.
+/// Carga útil de los eventos de cita. Hallazgo A9: SOLO identificadores. Antes viajaban el
+/// nombre, correo y teléfono del paciente por la Outbox y RabbitMQ (y quedaban en las colas de
+/// muertos); ahora cada consumidor consulta en la base lo que necesita, con sus propios permisos.
 /// </summary>
-public sealed record EventoCita(
-    int CitaId,
-    string Estado,
-    string PacienteNombre,
-    string PacienteEmail,
-    string? PacienteTelefono,
-    string ProfesionalNombre,
-    string Especialidad,
-    string Sede,
-    string DireccionSede,
-    DateTime FechaHoraInicio,
-    long? FolioBono = null,
-    int? MontoPagado = null,
-    string? Motivo = null);
+public sealed record EventoCita(int CitaId, string Estado, int Version = 2);

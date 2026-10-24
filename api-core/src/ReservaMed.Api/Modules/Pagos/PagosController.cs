@@ -187,7 +187,7 @@ public sealed class ServicioPagosWeb(
             return await ResumenAsync(cn, c.CitaId, false, "La reserva cambió durante el pago. El cargo fue reversado.");
         }
 
-        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaConfirmada, c.CitaId, bono?.Folio, r.Monto);
+        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaConfirmada, c.CitaId);
         await tx.CommitAsync();
 
         await auditoria.RegistrarAsync("PAGO_WEBPAY", "Cita", c.CitaId, $"${r.Monto} aut={r.CodigoAutorizacion}");

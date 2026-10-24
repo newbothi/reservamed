@@ -96,6 +96,9 @@ public abstract class ConsumidorBase(IConfiguration config, ILogger log) : Backg
 
 /// <summary>
 /// Envía correos y SMS (simulados) por cada evento de cita y deja registro en dbo.Notificaciones.
+/// A9: el evento trae solo el id; los datos de contacto se leen aquí con el usuario rm_worker
+/// (solo las columnas necesarias). En logs y en el registro de envío el destino va enmascarado
+/// y el nombre del paciente no se guarda.
 /// </summary>
 public sealed class ConsumidorNotificaciones(IConfiguration config, ILogger<ConsumidorNotificaciones> log)
     : ConsumidorBase(config, log)
@@ -107,46 +110,89 @@ public sealed class ConsumidorNotificaciones(IConfiguration config, ILogger<Cons
     protected override string Cola => "reservamed.notificaciones";
     protected override string[] RoutingKeys => ["cita.*"];
 
+    private sealed class DatosCita
+    {
+        public int CitaId { get; set; }
+        public string Estado { get; set; } = "";
+        public string PacienteNombre { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string? Telefono { get; set; }
+        public string ProfesionalNombre { get; set; } = "";
+        public string Especialidad { get; set; } = "";
+        public string Sede { get; set; } = "";
+        public string DireccionSede { get; set; } = "";
+        public DateTime FechaHoraInicio { get; set; }
+        public long? Folio { get; set; }
+        public int? MontoPagado { get; set; }
+        public int? MontoReversado { get; set; }
+    }
+
     protected override async Task ProcesarAsync(string routingKey, string json, CancellationToken ct)
     {
-        var e = JsonSerializer.Deserialize<EventoCita>(json, Json)
-                ?? throw new InvalidOperationException("Mensaje vacío");
+        var evento = JsonSerializer.Deserialize<EventoCita>(json, Json)
+                     ?? throw new InvalidOperationException("Mensaje vacío");
+
+        await using var cn = new SqlConnection(_cadena);
+        var e = await cn.QuerySingleOrDefaultAsync<DatosCita>("""
+            SELECT c.Id AS CitaId, c.Estado, pa.Nombres AS PacienteNombre, pa.Email, pa.Telefono,
+                   pr.Nombres + ' ' + pr.ApellidoPaterno AS ProfesionalNombre, es.Nombre AS Especialidad,
+                   s.Nombre AS Sede, s.Direccion + ', ' + s.Comuna AS DireccionSede, c.FechaHoraInicio,
+                   (SELECT TOP 1 b.Folio FROM dbo.Bonos b WHERE b.CitaId = c.Id ORDER BY b.Id DESC) AS Folio,
+                   (SELECT SUM(p.Monto) FROM dbo.Pagos p WHERE p.CitaId = c.Id AND p.Estado = 'AUTORIZADO') AS MontoPagado,
+                   (SELECT SUM(p.Monto) FROM dbo.Pagos p
+                     WHERE p.CitaId = c.Id AND p.Medio = 'WEBPAY' AND p.Estado = 'ANULADO' AND p.BonoId IS NOT NULL) AS MontoReversado
+            FROM dbo.Citas c
+            JOIN dbo.Pacientes pa      ON pa.Id = c.PacienteId
+            JOIN dbo.Profesionales pr  ON pr.Id = c.ProfesionalId
+            JOIN dbo.Especialidades es ON es.Id = pr.EspecialidadId
+            JOIN dbo.Sedes s           ON s.Id = c.SedeId
+            WHERE c.Id = @Id
+            """, new { Id = evento.CitaId });
+        if (e is null)
+        {
+            log.LogWarning("Cita {CitaId} no existe; se descarta el evento {Evento}.", evento.CitaId, routingKey);
+            return;
+        }
 
         var cuando = e.FechaHoraInicio.ToString("dddd d 'de' MMMM 'a las' HH:mm", Chile);
-        var (asunto, cuerpo) = routingKey switch
+        // El saludo lleva el nombre solo en el correo enviado; el registro guarda "{paciente}".
+        string Saludo(string nombre) => $"Hola {nombre}: ";
+        Func<string, (string Asunto, string Cuerpo)> plantilla = nombre => routingKey switch
         {
             TiposEvento.CitaReservada => ("Su hora fue reservada",
-                $"Hola {e.PacienteNombre}: reservó {e.Especialidad} con {e.ProfesionalNombre} el {cuando} en {e.Sede} ({e.DireccionSede}). " +
+                Saludo(nombre) + $"reservó {e.Especialidad} con {e.ProfesionalNombre} el {cuando} en {e.Sede} ({e.DireccionSede}). " +
                 "Llegue 15 minutos antes con su cédula de identidad para emitir el bono en admisión."),
             TiposEvento.CitaConfirmada => ("Su hora está confirmada y pagada",
-                $"Hola {e.PacienteNombre}: su hora de {e.Especialidad} del {cuando} quedó confirmada. " +
-                $"Bono folio {e.FolioBono?.ToString() ?? "-"}, copago pagado {Pesos(e.MontoPagado)}. Sólo preséntese en admisión."),
+                Saludo(nombre) + $"su hora de {e.Especialidad} del {cuando} quedó confirmada. " +
+                $"Bono folio {e.Folio?.ToString() ?? "-"}, copago pagado {Pesos(e.MontoPagado)}. Sólo preséntese en admisión."),
             TiposEvento.CitaCancelada => ("Su hora fue anulada",
-                $"Hola {e.PacienteNombre}: su hora de {e.Especialidad} del {cuando} fue anulada." +
-                (e.MontoPagado is > 0 ? $" Se reversó el cargo de {Pesos(e.MontoPagado)}." : "")),
+                Saludo(nombre) + $"su hora de {e.Especialidad} del {cuando} fue anulada." +
+                (e.MontoReversado is > 0 ? $" Se reversó el cargo de {Pesos(e.MontoReversado)}." : "")),
             TiposEvento.CitaExpirada => ("Su reserva expiró",
-                $"Hola {e.PacienteNombre}: no se completó el pago de su hora del {cuando}, por lo que se liberó. Puede reservar nuevamente."),
+                Saludo(nombre) + $"no se completó el pago de su hora del {cuando}, por lo que se liberó. Puede reservar nuevamente."),
             TiposEvento.CitaAdmitida => ("Admisión registrada",
-                $"Hola {e.PacienteNombre}: quedó admitido para su atención de {e.Especialidad}. Espere a ser llamado."),
+                Saludo(nombre) + $"quedó admitido para su atención de {e.Especialidad}. Espere a ser llamado."),
             TiposEvento.CitaRecordatorio => ("Recordatorio de su hora de mañana",
-                $"Hola {e.PacienteNombre}: le recordamos su hora de {e.Especialidad} con {e.ProfesionalNombre} el {cuando} en {e.Sede}. " +
+                Saludo(nombre) + $"le recordamos su hora de {e.Especialidad} con {e.ProfesionalNombre} el {cuando} en {e.Sede}. " +
                 "Si no puede asistir, anúlela para liberar el cupo."),
             _ => ("Actualización de su cita", $"Su cita del {cuando} cambió a estado {e.Estado}.")
         };
 
+        var (asunto, _) = plantilla(e.PacienteNombre);   // lo que se enviaría al paciente
+        var (_, cuerpoRegistro) = plantilla("{paciente}");  // lo que queda guardado
+
         var ahora = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, ZonaChile);
-        await using var cn = new SqlConnection(_cadena);
         await cn.ExecuteAsync("""
             INSERT INTO dbo.Notificaciones (CitaId, Evento, Canal, Destino, Asunto, Cuerpo, EnviadaEn)
-            VALUES (@CitaId, @Evento, 'EMAIL', @Email, @Asunto, @Cuerpo, @Ahora);
-            """, new { e.CitaId, Evento = routingKey, Email = e.PacienteEmail, Asunto = asunto, Cuerpo = cuerpo, Ahora = ahora });
+            VALUES (@CitaId, @Evento, 'EMAIL', @Destino, @Asunto, @Cuerpo, @Ahora);
+            """, new { e.CitaId, Evento = routingKey, Destino = Privacidad.Correo(e.Email), Asunto = asunto, Cuerpo = cuerpoRegistro, Ahora = ahora });
 
-        log.LogInformation("📧 EMAIL a {Email}: {Asunto}", e.PacienteEmail, asunto);
+        log.LogInformation("📧 EMAIL a {Destino}: {Asunto} (cita {CitaId})", Privacidad.Correo(e.Email), asunto, e.CitaId);
 
         // SMS de recordatorio según el riesgo de inasistencia que calculó el ml-service:
         // un SMS cuesta dinero, así que se envía a los pacientes con riesgo MEDIO o ALTO
         // (o a todos si todavía no hay predicción). A los de riesgo ALTO se les pide confirmar.
-        if (routingKey == TiposEvento.CitaRecordatorio && !string.IsNullOrWhiteSpace(e.PacienteTelefono))
+        if (routingKey == TiposEvento.CitaRecordatorio && !string.IsNullOrWhiteSpace(e.Telefono))
         {
             var riesgo = await cn.ExecuteScalarAsync<string?>(
                 "SELECT Nivel FROM dbo.PrediccionesCita WHERE CitaId = @CitaId", new { e.CitaId });
@@ -160,9 +206,9 @@ public sealed class ConsumidorNotificaciones(IConfiguration config, ILogger<Cons
                 : $"ReservaMed: hora {e.Especialidad} {e.FechaHoraInicio:dd/MM HH:mm} en {e.Sede}.";
             await cn.ExecuteAsync("""
                 INSERT INTO dbo.Notificaciones (CitaId, Evento, Canal, Destino, Asunto, Cuerpo, EnviadaEn)
-                VALUES (@CitaId, @Evento, 'SMS', @Tel, 'Recordatorio', @Sms, @Ahora);
-                """, new { e.CitaId, Evento = routingKey, Tel = e.PacienteTelefono, Sms = sms, Ahora = ahora });
-            log.LogInformation("📱 SMS a {Telefono}: {Sms}", e.PacienteTelefono, sms);
+                VALUES (@CitaId, @Evento, 'SMS', @Destino, 'Recordatorio', @Sms, @Ahora);
+                """, new { e.CitaId, Evento = routingKey, Destino = Privacidad.Telefono(e.Telefono), Sms = sms, Ahora = ahora });
+            log.LogInformation("📱 SMS a {Destino} (cita {CitaId})", Privacidad.Telefono(e.Telefono), e.CitaId);
         }
     }
 
@@ -172,6 +218,7 @@ public sealed class ConsumidorNotificaciones(IConfiguration config, ILogger<Cons
 /// <summary>
 /// Integración simulada con el HIS (ficha clínica): al admitir un paciente se envía
 /// el Appointment en formato FHIR para que el médico lo vea en su agenda clínica.
+/// A9: el log identifica la cita por id, sin nombres.
 /// </summary>
 public sealed class ConsumidorHis(IConfiguration config, ILogger<ConsumidorHis> log) : ConsumidorBase(config, log)
 {
@@ -182,8 +229,35 @@ public sealed class ConsumidorHis(IConfiguration config, ILogger<ConsumidorHis> 
     {
         var e = JsonSerializer.Deserialize<EventoCita>(json, Json)!;
         var status = routingKey == TiposEvento.CitaAdmitida ? "arrived" : "cancelled";
-        log.LogInformation("🏥 [HIS mock] PUT Appointment/{Id} status={Status} paciente={Paciente} profesional={Profesional}",
-            e.CitaId, status, e.PacienteNombre, e.ProfesionalNombre);
+        log.LogInformation("🏥 [HIS mock] PUT Appointment/{Id} status={Status}", e.CitaId, status);
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// A9: retención limitada. Los registros de envío se borran pasado el plazo (por defecto 90 días).
+/// </summary>
+public sealed class RetencionNotificaciones(IConfiguration config, ILogger<RetencionNotificaciones> log) : BackgroundService
+{
+    private readonly string _cadena = config.GetConnectionString("ReservaMed")!;
+    private readonly int _dias = config.GetValue("Privacidad:RetencionNotificacionesDias", 90);
+
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromHours(6));
+        do
+        {
+            try
+            {
+                await using var cn = new SqlConnection(_cadena);
+                var borradas = await cn.ExecuteAsync(
+                    "DELETE FROM dbo.Notificaciones WHERE EnviadaEn < DATEADD(DAY, -@Dias, SYSDATETIME())", new { Dias = _dias });
+                if (borradas > 0) log.LogInformation("Retención: {Cantidad} notificaciones de más de {Dias} días eliminadas.", borradas, _dias);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                log.LogWarning("Retención de notificaciones falló: {Error}", ex.Message);
+            }
+        } while (await timer.WaitForNextTickAsync(ct));
     }
 }

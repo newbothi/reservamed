@@ -136,41 +136,16 @@ public sealed class ServicioValorizacion(IEmisorBonos emisor)
 }
 
 /// <summary>Arma el payload de los eventos de cita que se publican vía Outbox.</summary>
+/// <summary>
+/// Publica eventos de cita por la Outbox. A9: el evento lleva solo el id y el estado; nada del
+/// paciente. El Worker y el ml-service consultan lo que necesitan con sus propios permisos.
+/// </summary>
 public static class EventosCita
 {
-    private sealed class Fila
+    public static async Task PublicarAsync(IDbConnection cn, IDbTransaction tx, string tipo, int citaId)
     {
-        public int CitaId { get; set; }
-        public string Estado { get; set; } = "";
-        public string PacienteNombre { get; set; } = "";
-        public string PacienteEmail { get; set; } = "";
-        public string? PacienteTelefono { get; set; }
-        public string ProfesionalNombre { get; set; } = "";
-        public string Especialidad { get; set; } = "";
-        public string Sede { get; set; } = "";
-        public string DireccionSede { get; set; } = "";
-        public DateTime FechaHoraInicio { get; set; }
-    }
-
-    public static async Task PublicarAsync(IDbConnection cn, IDbTransaction tx, string tipo, int citaId,
-        long? folioBono = null, int? monto = null, string? motivo = null)
-    {
-        var f = await cn.QuerySingleAsync<Fila>("""
-            SELECT c.Id AS CitaId, c.Estado,
-                   pa.Nombres + ' ' + pa.ApellidoPaterno AS PacienteNombre, pa.Email AS PacienteEmail, pa.Telefono AS PacienteTelefono,
-                   pr.Nombres + ' ' + pr.ApellidoPaterno AS ProfesionalNombre, e.Nombre AS Especialidad,
-                   s.Nombre AS Sede, s.Direccion + ', ' + s.Comuna AS DireccionSede, c.FechaHoraInicio
-            FROM dbo.Citas c
-            JOIN dbo.Pacientes pa     ON pa.Id = c.PacienteId
-            JOIN dbo.Profesionales pr ON pr.Id = c.ProfesionalId
-            JOIN dbo.Especialidades e ON e.Id = pr.EspecialidadId
-            JOIN dbo.Sedes s          ON s.Id = c.SedeId
-            WHERE c.Id = @Id
-            """, new { Id = citaId }, tx);
-
-        var evento = new EventoCita(f.CitaId, f.Estado, f.PacienteNombre, f.PacienteEmail, f.PacienteTelefono,
-            f.ProfesionalNombre, f.Especialidad, f.Sede, f.DireccionSede, f.FechaHoraInicio, folioBono, monto, motivo);
-
-        await Outbox.AgregarAsync(cn, tx, tipo, evento);
+        var estado = await cn.ExecuteScalarAsync<string>("SELECT Estado FROM dbo.Citas WHERE Id = @Id", new { Id = citaId }, tx)
+                     ?? throw new InvalidOperationException($"La cita {citaId} no existe.");
+        await Outbox.AgregarAsync(cn, tx, tipo, new EventoCita(citaId, estado));
     }
 }

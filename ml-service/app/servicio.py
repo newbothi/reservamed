@@ -1,6 +1,8 @@
 """Orquesta datos, entrenamiento, registro de modelos y predicciones contra SQL Server."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import threading
@@ -21,6 +23,36 @@ class ModeloNoDisponible(Exception):
     pass
 
 
+# ---------- M5: firma de los archivos de modelo ----------
+# joblib usa pickle: cargar un archivo alterado puede ejecutar código. Por eso cada modelo se
+# firma al guardarlo (HMAC-SHA256 con una clave derivada de ML_API_KEY, que solo conocen los
+# servicios) y la firma se verifica ANTES de cargarlo. Quien pueda escribir en el volumen de
+# modelos pero no conozca la clave no puede colar un archivo propio.
+
+def _clave_firma(api_key: str) -> bytes:
+    if not api_key:
+        raise ModeloNoDisponible("Sin ML_API_KEY no se pueden firmar ni verificar modelos.")
+    return hashlib.sha256(b"reservamed-modelo:" + api_key.encode("utf-8")).digest()
+
+
+def ruta_firma(ruta: Path) -> Path:
+    return ruta.with_name(ruta.name + ".firma")
+
+
+def firmar_archivo(ruta: Path, api_key: str) -> str:
+    firma = hmac.new(_clave_firma(api_key), ruta.read_bytes(), hashlib.sha256).hexdigest()
+    ruta_firma(ruta).write_text(firma, encoding="ascii")
+    return firma
+
+
+def firma_valida(ruta: Path, api_key: str) -> bool:
+    archivo_firma = ruta_firma(ruta)
+    if not ruta.is_file() or not archivo_firma.is_file():
+        return False
+    esperada = hmac.new(_clave_firma(api_key), ruta.read_bytes(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(esperada, archivo_firma.read_text(encoding="ascii").strip())
+
+
 class ServicioInasistencia:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -36,11 +68,13 @@ class ServicioInasistencia:
         version = f"inasistencia-{ahora:%Y%m%d-%H%M%S}"
         sinteticos = bool(db.escalar("SELECT COUNT(1) FROM dbo.Pacientes WHERE Email LIKE '%@sintetico.cl'"))
 
+        ruta = Path(config.carpeta_modelos) / f"{version}.joblib"
         joblib.dump(
             {"version": version, "pipeline": resultado.pipeline,
              "umbral_medio": resultado.umbral_medio, "umbral_alto": resultado.umbral_alto},
-            Path(config.carpeta_modelos) / f"{version}.joblib",
+            ruta,
         )
+        firmar_archivo(ruta, config.api_key)   # M5
 
         with db.conexion() as cn:
             cur = cn.cursor()
@@ -61,6 +95,12 @@ class ServicioInasistencia:
 
     # ---------- Modelo activo ----------
 
+    def modelo_activo_firmado(self) -> bool:
+        meta = self.metadata_activo()
+        if meta is None:
+            return False
+        return firma_valida(Path(config.carpeta_modelos) / f"{meta['version']}.joblib", config.api_key)
+
     def metadata_activo(self) -> dict | None:
         df = db.consultar("SELECT * FROM dbo.ModelosML WHERE Tipo = ? AND Activo = 1", (TIPO,))
         return None if df.empty else _fila_modelo(df.iloc[0])
@@ -78,7 +118,10 @@ class ServicioInasistencia:
                 ruta = Path(config.carpeta_modelos) / f"{meta['version']}.joblib"
                 if not ruta.exists():
                     raise ModeloNoDisponible(f"Falta el archivo del modelo {meta['version']}. Vuelva a entrenar.")
-                self._cache = joblib.load(ruta)
+                if not firma_valida(ruta, config.api_key):   # M5: nunca cargar un archivo sin firma válida
+                    log.error("El modelo %s no tiene una firma válida: no se carga.", meta["version"])
+                    raise ModeloNoDisponible(f"El modelo {meta['version']} no tiene una firma válida. Vuelva a entrenar.")
+                self._cache = joblib.load(ruta)  # noqa: S301 - firma verificada arriba
             return self._cache
 
     # ---------- Predicción ----------

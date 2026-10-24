@@ -19,8 +19,11 @@ def preparar(intentos: int = 30, espera: float = 10) -> bool:
     for intento in range(1, intentos + 1):
         try:
             if servicio.metadata_activo() is not None:
-                log.info("Ya hay un modelo activo: nada que preparar.")
-                return True
+                if servicio.modelo_activo_firmado():
+                    log.info("Ya hay un modelo activo y firmado: nada que preparar.")
+                    return True
+                # M5: modelos anteriores a la fase 4 (o alterados) no tienen firma válida: se reentrena.
+                log.warning("El modelo activo no tiene firma válida: se entrena uno nuevo.")
             if servicio.muestras_disponibles() < 500:
                 log.info("Sin historial suficiente: generando datos sintéticos…")
                 generar(18, 1500, False)

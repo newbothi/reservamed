@@ -212,6 +212,11 @@ public sealed class BloqueoRequestValidator : AbstractValidator<BloqueoRequest>
 
 /* ---------------- Admisión ---------------- */
 
+public sealed class BuscarPacienteRequestValidator : AbstractValidator<BuscarPacienteRequest>
+{
+    public BuscarPacienteRequestValidator() => RuleFor(x => x.Rut).NotEmpty().WithMessage("Ingrese el RUT.").RutOpcional();
+}
+
 public sealed class CrearPacienteRequestValidator : AbstractValidator<CrearPacienteRequest>
 {
     public CrearPacienteRequestValidator()

@@ -46,7 +46,8 @@ export default function Pacientes() {
     setNoExiste(false);
     setPaciente(null);
     try {
-      setPaciente(await api<Paciente>(`/api/admision/pacientes/${encodeURIComponent(rutBuscado.replace(/\./g, ''))}`));
+      // A9: el RUT viaja en el cuerpo, nunca en la URL (no queda en logs ni en el historial).
+      setPaciente(await api<Paciente>('/api/admision/pacientes/buscar', { cuerpo: { rut: rutBuscado.replace(/\./g, '') } }));
     } catch (err) {
       if ((err as ErrorApi).status === 404) setNoExiste(true);
       else setError((err as Error).message);

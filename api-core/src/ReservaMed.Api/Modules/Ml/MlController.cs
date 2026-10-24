@@ -68,6 +68,7 @@ public sealed class MlController(ClienteMl ml, ISqlConnectionFactory db, IAudito
         await using var cn = db.Crear();
         // C5: el médico solo ve el riesgo de sus citas; recepción, las de su sede.
         await politica.ExigirCitaAsync(User, id, cn);
+        await auditoria.RegistrarAsync("VER_RIESGO", "Cita", id);   // M6: dato derivado de salud
         var fila = await cn.QuerySingleOrDefaultAsync<FilaPrediccion>(
             "SELECT * FROM dbo.PrediccionesCita WHERE CitaId = @Id", new { Id = id });
         if (fila is not null)

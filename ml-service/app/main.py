@@ -3,6 +3,7 @@ ml-service de ReservaMed (FastAPI).
 Sólo es accesible desde la red interna: lo consumen la API Core (HTTP) y RabbitMQ (eventos).
 """
 import asyncio
+import hmac
 import logging
 from contextlib import asynccontextmanager
 
@@ -39,12 +40,23 @@ async def lifespan(_: FastAPI):
         t.cancel()
 
 
-app = FastAPI(title="ReservaMed ML", version="1.0.0", lifespan=lifespan)
+# M5: fuera de desarrollo no se publica la documentación ni el esquema (superficie de ataque).
+app = FastAPI(
+    title="ReservaMed ML", version="1.0.0", lifespan=lifespan,
+    docs_url="/docs" if config.desarrollo else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if config.desarrollo else None,
+)
 
 
 def exigir_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    """Falla cerrado (C1): sin una API key configurada y válida, nadie entra."""
-    if not api_key_valida(config.api_key) or x_api_key != config.api_key:
+    """
+    Falla cerrado (C1): sin una API key configurada y válida, nadie entra.
+    M5: la comparación es en tiempo constante (hmac.compare_digest), para no filtrar la clave
+    carácter a carácter por el tiempo de respuesta.
+    """
+    recibida = (x_api_key or "").encode("utf-8")
+    if not api_key_valida(config.api_key) or not hmac.compare_digest(recibida, config.api_key.encode("utf-8")):
         raise HTTPException(status_code=401, detail="API key inválida")
 
 

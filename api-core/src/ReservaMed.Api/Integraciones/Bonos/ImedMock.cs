@@ -82,7 +82,7 @@ public sealed class ImedMock(ISqlConnectionFactory db, IReloj reloj, ILogger<Ime
 
         var ahora = reloj.Ahora;
         log.LogInformation("[I-Med mock] Bono {Folio} emitido para {Rut} ({Plan}), copago {Copago}",
-            folio, s.Valorizacion.BeneficiarioRut, valorizacion.PlanCodigo, valorizacion.TotalCopago);
+            folio, ReservaMed.Contracts.Privacidad.Rut(s.Valorizacion.BeneficiarioRut), valorizacion.PlanCodigo, valorizacion.TotalCopago);
 
         return new BonoEmitido(folio, NuevoCodigoAuditoria(), ahora, ahora.Date, valorizacion);
     }

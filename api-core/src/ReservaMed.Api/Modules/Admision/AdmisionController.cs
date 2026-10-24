@@ -11,8 +11,9 @@ namespace ReservaMed.Api.Modules.Admision;
 [Authorize(Roles = Roles.Staff)]
 public sealed class AdmisionController(ServicioAdmision admision) : ControllerBase
 {
-    [HttpGet("pacientes/{rut}")]
-    public Task<PacienteAdmisionDto> BuscarPaciente(string rut) => admision.BuscarPacienteAsync(rut);
+    /// <summary>A9: el RUT va en el cuerpo, no en la URL (las URL quedan en los logs de NGINX y del navegador).</summary>
+    [HttpPost("pacientes/buscar")]
+    public Task<PacienteAdmisionDto> BuscarPaciente(BuscarPacienteRequest r) => admision.BuscarPacienteAsync(r.Rut);
 
     [HttpPost("pacientes")]
     public async Task<IActionResult> CrearPaciente(CrearPacienteRequest r) =>

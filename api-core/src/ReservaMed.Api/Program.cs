@@ -57,6 +57,9 @@ builder.Services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
 builder.Services.AddSingleton<IReloj, RelojChile>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuditoria, ServicioAuditoria>();
+// F4 (M6): alerta si la auditoría falla y registro de accesos denegados por rol.
+builder.Services.AddSingleton<EstadoAuditoria>();
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, AuditarDenegaciones>();
 builder.Services.AddSingleton(TimeProvider.System);
 // F3 (C5, A3): autorización por objeto y sede en un solo lugar.
 builder.Services.AddSingleton<PoliticaAcceso>();
@@ -152,7 +155,7 @@ builder.WebHost.ConfigureKestrel(k => k.AddServerHeader = false);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ManejadorErrores>();
 builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks().AddCheck<SaludAuditoria>("auditoria");
 
 // A4: solo NGINX y el BFF (IPs fijas en Docker) pueden informar la IP del cliente.
 builder.Services.Configure<ForwardedHeadersOptions>(o =>

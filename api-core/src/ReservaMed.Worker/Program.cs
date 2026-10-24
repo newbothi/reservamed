@@ -16,5 +16,6 @@ if (problemasRabbit.Count > 0)
 
 builder.Services.AddHostedService<ConsumidorNotificaciones>();
 builder.Services.AddHostedService<ConsumidorHis>();
+builder.Services.AddHostedService<RetencionNotificaciones>();   // A9: retención limitada
 
 builder.Build().Run();

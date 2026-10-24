@@ -89,7 +89,31 @@ public sealed class PublicadorOutbox(ISqlConnectionFactory db, PublicadorRabbit 
                 log.LogWarning("Outbox: no se pudo publicar ({Error}). Se reintentará.", ex.Message);
                 await Task.Delay(TimeSpan.FromSeconds(10), ct);
             }
-            if (procesados == 0) await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            if (procesados == 0)
+            {
+                await LimpiarAsync(ct);
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            }
+        }
+    }
+
+    private DateTime _ultimaLimpieza = DateTime.MinValue;
+
+    /// <summary>A9: retención limitada. Los eventos ya publicados se borran a los 7 días.</summary>
+    private async Task LimpiarAsync(CancellationToken ct)
+    {
+        if (DateTime.UtcNow - _ultimaLimpieza < TimeSpan.FromHours(1)) return;
+        _ultimaLimpieza = DateTime.UtcNow;
+        try
+        {
+            await using var cn = db.Crear();
+            var n = await cn.ExecuteAsync(
+                "DELETE FROM dbo.Outbox WHERE ProcesadoEn IS NOT NULL AND ProcesadoEn < DATEADD(DAY, -7, SYSDATETIME())");
+            if (n > 0) log.LogInformation("Retención: {Cantidad} eventos publicados de más de 7 días eliminados de la Outbox.", n);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            log.LogWarning("Retención de la Outbox falló: {Error}", ex.Message);
         }
     }
 
@@ -155,7 +179,7 @@ public sealed class ExpiracionReservasJob(ISqlConnectionFactory db, IReloj reloj
                     await cn.ExecuteAsync("UPDATE dbo.Pagos SET Estado = 'RECHAZADO' WHERE CitaId IN @Ids AND Estado = 'PENDIENTE'",
                         new { Ids = ids }, tx);
                     foreach (var id in ids)
-                        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaExpirada, id, motivo: "No se completó el pago a tiempo");
+                        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaExpirada, id);
                     log.LogInformation("Reservas expiradas: {Ids}", string.Join(", ", ids));
                 }
                 await tx.CommitAsync(ct);

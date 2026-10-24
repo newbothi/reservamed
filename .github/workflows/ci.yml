@@ -161,7 +161,7 @@ jobs:
           }
           $vals = @{}
           Get-Content .env | Where-Object { $_ -match '^\s*([A-Z_]+)=(.*)$' } | ForEach-Object { $vals[$Matches[1]] = $Matches[2] }
-          foreach ($k in 'SA_PASSWORD','JWT_KEY','ML_API_KEY','RABBIT_USER','RABBIT_PASS','TOTP_KEY','BFF_SESSION_KEY','HUELLA_KEY') {
+          foreach ($k in 'SA_PASSWORD','JWT_KEY','ML_API_KEY','RABBIT_USER','RABBIT_PASS','TOTP_KEY','BFF_SESSION_KEY','HUELLA_KEY','SQL_TDE_PASS') {
             if (-not $vals[$k]) { throw "Falta $k en .env" }
           }
           if ($vals.JWT_KEY.Length -lt 32) { throw 'JWT_KEY demasiado corta' }
@@ -260,6 +260,9 @@ jobs:
       - name: Verificaciones de la fase 3 (A3 C3 C5 M3 B3 de punta a punta)
         if: success() || failure()
         run: pwsh -NoProfile -File scripts/verificar-fase3.ps1 -CI
+      - name: Verificaciones de la fase 4 (A9 M5 M6 M7 B2; barrido de logs y ASVS nivel 2)
+        if: success() || failure()
+        run: pwsh -NoProfile -File scripts/verificar-fase4.ps1 -CI
       - name: ZAP baseline (portal y backoffice)
         if: success() || failure()
         run: |

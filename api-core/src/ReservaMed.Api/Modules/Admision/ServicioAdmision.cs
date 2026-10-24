@@ -62,6 +62,8 @@ public sealed record EmitirBonoRequest(string? ComprobanteHuella, string? Deriva
 
 public enum MedioCaja { POS_DEBITO, POS_CREDITO, EFECTIVO }
 
+public sealed record BuscarPacienteRequest(string Rut);
+
 public sealed record CobrarRequest(MedioCaja Medio, string? UltimosDigitos, int? Cuotas);
 
 public sealed record CrearPacienteRequest(
@@ -206,6 +208,7 @@ public sealed class ServicioAdmision(
         await using var cn = db.Crear();
         await politica.ExigirCitaAsync(usuario, citaId, cn);   // A3: recepción solo su sede
         var c = await RepositorioContexto.CargarAsync(cn, citaId);
+        await auditoria.RegistrarAsync("VALORIZAR", "Cita", citaId);   // M6: consulta la previsión del paciente
         return await valorizacion.ValorizarAsync(c);
     }
 
@@ -222,6 +225,7 @@ public sealed class ServicioAdmision(
             throw new ReglaNegocioException($"No se puede emitir bono para una cita en estado {c.Estado}.");
         if (c.EsParticular)
             throw new ReglaNegocioException(c.AvisoParticular ?? "Paciente particular: no requiere bono.");
+        await auditoria.RegistrarAsync("HUELLA_DESAFIO", "Cita", citaId);
         return huellas.CrearDesafio(citaId, usuario.UsuarioId(), c.PacienteRut, c.SedeId);
     }
 
@@ -377,7 +381,7 @@ public sealed class ServicioAdmision(
                 $"La cita fue modificada mientras se cobraba. Anule el voucher {voucher?.CodigoAutorizacion} en el POS y reintente.");
         }
 
-        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaAdmitida, citaId, bono?.Folio, monto);
+        await EventosCita.PublicarAsync(cn, tx, TiposEvento.CitaAdmitida, citaId);
         await tx.CommitAsync();
 
         await auditoria.RegistrarAsync("COBRAR", "Cita", citaId, $"{medio} ${monto} aut={voucher?.CodigoAutorizacion}");
