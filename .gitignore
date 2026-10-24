@@ -31,3 +31,6 @@ ml-service/modelos/
 
 # Certificados locales (mkcert/openssl): nunca al repositorio
 certs/
+
+# Resultado de scripts/verificar-fase1.ps1
+verificacion-fase*.txt

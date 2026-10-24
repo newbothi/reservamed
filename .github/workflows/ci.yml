@@ -133,6 +133,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Sintaxis de todos los scripts PowerShell y solo ASCII (Windows PowerShell 5.1)
+        shell: pwsh
+        run: |
+          $errores = 0
+          foreach ($f in Get-ChildItem scripts -Filter *.ps1) {
+            $e = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e)
+            foreach ($x in $e) { Write-Output "::error file=scripts/$($f.Name),line=$($x.Extent.StartLineNumber)::$($x.Message)"; $errores++ }
+            if ([IO.File]::ReadAllBytes($f.FullName) | Where-Object { $_ -gt 127 }) { Write-Output "::error file=scripts/$($f.Name)::Tiene caracteres no ASCII"; $errores++ }
+          }
+          if ($errores) { exit 1 }
       - name: Primera ejecución
         shell: pwsh
         run: ./scripts/configurar-secretos.ps1
