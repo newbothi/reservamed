@@ -110,11 +110,15 @@ Revisar 'C2' ($cfgApi -match 'Webpay__Modo=Integracion') 'Webpay en modo Integra
 
 # ---------------------------------------------------------------- A5 / M9 red y RabbitMQ
 Seccion 'A5 / M9 - Red interna, usuarios por servicio y AMQPS'
-foreach ($l in (docker ps --filter 'label=com.docker.compose.project=reservamed' --format '{{.Label "com.docker.compose.service"}}|{{.Ports}}')) {
+# Sin comillas dobles en el formato: Windows PowerShell 5.1 las quita al llamar a docker.
+$contenedores = @(docker ps --filter 'label=com.docker.compose.project=reservamed' --format '{{.Names}}|{{.Ports}}')
+if ($contenedores.Count -lt 7) { Falla 'A5' "No se pudo listar los puertos publicados ($($contenedores.Count) contenedores)" }
+foreach ($l in $contenedores) {
     $p = $l -split '\|', 2
+    $servicio = $p[0] -replace '^reservamed-', '' -replace '-\d+$', ''
     $publicado = $p[1] -match '->'
-    if ($p[0] -eq 'nginx') { Revisar 'A5' $publicado "nginx publica solo: $($p[1])" 'nginx no publica puertos' }
-    else { Revisar 'A5' (-not $publicado) "$($p[0]) sin puertos en el host" "$($p[0]) publica puertos: $($p[1])" }
+    if ($servicio -eq 'nginx') { Revisar 'A5' $publicado "nginx es el unico que publica: $($p[1])" 'nginx no publica puertos' }
+    else { Revisar 'A5' (-not $publicado) "$servicio sin puertos en el host" "$servicio publica puertos: $($p[1])" }
 }
 docker compose exec -T rabbitmq wget -q -T 5 -O /dev/null https://www.google.com 2>$null | Out-Null
 Revisar 'A5' ($LASTEXITCODE -ne 0) 'La red de datos no tiene salida a Internet' 'La red de datos sale a Internet'
