@@ -47,6 +47,8 @@ public sealed class ReglasNegocio
     public int HorasMinimasParaAnular { get; set; } = 2;
     public int MinutosAnticipacionMinima { get; set; } = 60;
     public int DiasMaximosConsulta { get; set; } = 21;
+    /// <summary>A8: reservas con pago online sin pagar que puede tener un paciente a la vez.</summary>
+    public int MaxReservasPendientesPago { get; set; } = 2;
 }
 
 /// <summary>Error de negocio que se devuelve al cliente como ProblemDetails.</summary>

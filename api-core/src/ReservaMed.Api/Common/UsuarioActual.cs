@@ -6,6 +6,8 @@ namespace ReservaMed.Api.Common;
 public static class Claims
 {
     public const string Sub = "sub";
+    /// <summary>Id de la sesión revocable (dbo.Sesiones) a la que pertenece el access token.</summary>
+    public const string Sid = "sid";
     public const string Rol = "rol";
     public const string Nombre = "nombre";
     public const string Email = "email";

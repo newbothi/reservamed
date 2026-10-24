@@ -1,6 +1,9 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using ReservaMed.Api.Common;
 using Microsoft.Data.SqlClient;
 using Testcontainers.MsSql;
 
@@ -60,10 +63,23 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         Environment.SetEnvironmentVariable("Webpay__Modo", "Simulado");
         Environment.SetEnvironmentVariable("Webpay__UrlPagoMock", "http://localhost/webpay-mock/pagar");
         Environment.SetEnvironmentVariable("Webpay__ReturnUrl", "http://localhost/pago/retorno");
+        // F2: clave para cifrar semillas TOTP; sin HIBP (pruebas deterministas); límites por IP altos
+        // porque todas las peticiones de TestServer comparten "IP".
+        Environment.SetEnvironmentVariable("Seguridad__TotpClave", "cHJ1ZWJhcy10b3RwLWNsYXZlLWRlLTMyLWJ5dGVzLW1pbmltby0xMjM0");
+        Environment.SetEnvironmentVariable("Seguridad__VerificarFiltraciones", "false");
+        Environment.SetEnvironmentVariable("Seguridad__LoginPorMinutoPorIp", "10000");
+        Environment.SetEnvironmentVariable("Seguridad__RenovarPorMinutoPorIp", "10000");
+        Environment.SetEnvironmentVariable("Seguridad__UrlPortal", "https://portal.prueba");
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+    /// <summary>Correos enviados por la API durante las pruebas (verificación de cuenta, avisos).</summary>
+    public BuzonCorreo Buzon { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
         builder.UseEnvironment("Testing");   // ni Development ni Production: valida secretos en modo estricto
+        builder.ConfigureTestServices(s => s.AddSingleton<IEnviadorCorreo>(Buzon));
+    }
 
     async Task IAsyncLifetime.DisposeAsync()
     {
@@ -103,6 +119,22 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
 
     [GeneratedRegex(@"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
     private static partial Regex SeparadorGo();
+}
+
+public sealed class BuzonCorreo : IEnviadorCorreo
+{
+    private readonly List<Correo> _correos = [];
+
+    public Task EnviarAsync(Correo correo, CancellationToken ct = default)
+    {
+        lock (_correos) _correos.Add(correo);
+        return Task.CompletedTask;
+    }
+
+    public IReadOnlyList<Correo> Para(string email)
+    {
+        lock (_correos) return _correos.Where(c => c.Para.Equals(email, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
 }
 
 [CollectionDefinition("api")]

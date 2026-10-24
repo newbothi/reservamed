@@ -93,6 +93,20 @@ public sealed class ServicioCitas(
         if (futuras >= 3 && canal == "WEB")
             throw new ReglaNegocioException("Tiene 3 horas pendientes. Anule alguna antes de reservar otra.");
 
+        // A8: cada reserva con pago online bloquea el cupo mientras se paga. Un bot con varias
+        // cuentas podría acaparar horas encadenando reservas que nunca paga: se limita por cuenta.
+        if (modalidad == ModalidadPago.ONLINE)
+        {
+            var pendientes = await cn.ExecuteScalarAsync<int>("""
+                SELECT COUNT(1) FROM dbo.Citas
+                WHERE PacienteId = @PacienteId AND Estado = 'PENDIENTE_PAGO' AND OcupaCupo = 1
+                """, new { PacienteId = pacienteId });
+            if (pendientes >= _reglas.MaxReservasPendientesPago)
+                throw new ReglaNegocioException(
+                    $"Tiene {pendientes} reservas esperando pago. Pague o anule alguna antes de reservar otra.",
+                    StatusCodes.Status409Conflict, "PENDIENTES_PAGO");
+        }
+
         var estado = modalidad == ModalidadPago.ONLINE ? "PENDIENTE_PAGO" : "RESERVADA";
         DateTime? expira = modalidad == ModalidadPago.ONLINE ? ahora.AddMinutes(_reglas.MinutosReservaTemporal) : null;
 

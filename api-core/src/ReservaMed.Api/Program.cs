@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
@@ -22,6 +23,7 @@ ValidacionSecretos.Exigir(
 [
     new("Jwt:Key", builder.Configuration["Jwt:Key"], ValidacionSecretos.LargoMinimoClaveJwt),
     new("Ml:ApiKey", builder.Configuration["Ml:ApiKey"], ValidacionSecretos.LargoMinimoApiKey),
+    new("Seguridad:TotpClave", builder.Configuration["Seguridad:TotpClave"], ValidacionSecretos.LargoMinimoClaveJwt),
     new("RabbitMq:Clave", builder.Configuration["RabbitMq:Clave"], ValidacionSecretos.LargoMinimoClave, ToleradoEnDesarrollo: true)
 ], builder.Environment.IsDevelopment());
 
@@ -41,6 +43,9 @@ if (problemasRabbit.Count > 0)
 // ---------- Configuración ----------
 builder.Services.Configure<ReglasNegocio>(builder.Configuration.GetSection("Reglas"));
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<OpcionesSeguridad>(builder.Configuration.GetSection("Seguridad"));
+builder.Services.Configure<OpcionesCorreo>(builder.Configuration.GetSection("Correo"));
+var seguridad = builder.Configuration.GetSection("Seguridad").Get<OpcionesSeguridad>() ?? new OpcionesSeguridad();
 builder.Services.Configure<OpcionesConexionRabbit>(builder.Configuration.GetSection("RabbitMq"));
 builder.Services.Configure<OpcionesWebpay>(builder.Configuration.GetSection("Webpay"));
 builder.Services.Configure<OpcionesPos>(builder.Configuration.GetSection("Pos"));
@@ -76,7 +81,44 @@ builder.Services.AddHttpClient<ClienteMl>((sp, http) =>
 });
 
 // ---------- Módulos ----------
+// ---------- Identidad y sesión (F2: A1 A2 A7 M1 M2) ----------
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ServicioJwt>();
+builder.Services.AddScoped<ServicioSesiones>();
+builder.Services.AddSingleton(new CifradoSecretos(seguridad.TotpClave));
+builder.Services.AddScoped<PoliticaContrasenas>();
+if (seguridad.VerificarFiltraciones)
+    builder.Services.AddHttpClient<IVerificadorFiltraciones, VerificadorHibp>(http =>
+    {
+        http.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+        http.Timeout = TimeSpan.FromSeconds(3);
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ReservaMed/2.0");
+    });
+else
+    builder.Services.AddSingleton<IVerificadorFiltraciones, SinVerificacionFiltraciones>();
+if (string.Equals(builder.Configuration["Correo:Modo"], "Smtp", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddSingleton<IEnviadorCorreo, CorreoSmtp>();
+else
+    builder.Services.AddSingleton<IEnviadorCorreo, CorreoEnLog>();
+
+// Límite por IP en login, TOTP, registro y renovación (A2, A8). El bloqueo por cuenta está en AuthController.
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    static string Ip(HttpContext c) => c.Connection.RemoteIpAddress?.ToString() ?? "sin-ip";
+    o.AddPolicy(PoliticasLimite.Login, c => RateLimitPartition.GetFixedWindowLimiter(Ip(c), _ =>
+        new FixedWindowRateLimiterOptions { PermitLimit = seguridad.LoginPorMinutoPorIp, Window = TimeSpan.FromMinutes(1) }));
+    o.AddPolicy(PoliticasLimite.Renovar, c => RateLimitPartition.GetFixedWindowLimiter(Ip(c), _ =>
+        new FixedWindowRateLimiterOptions { PermitLimit = seguridad.RenovarPorMinutoPorIp, Window = TimeSpan.FromMinutes(1) }));
+    o.OnRejected = async (ctx, ct) =>
+    {
+        ctx.HttpContext.Response.ContentType = "application/problem+json";
+        await ctx.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            status = 429, title = "Demasiadas solicitudes. Espere un minuto e intente nuevamente.", codigo = "LIMITE"
+        }, ct);
+    };
+});
 builder.Services.AddScoped<ServicioAgenda>();
 builder.Services.AddScoped<ServicioCitas>();
 builder.Services.AddScoped<ServicioValorizacion>();
@@ -124,7 +166,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
             RoleClaimType = Claims.Rol,
             NameClaimType = Claims.Nombre,
-            ClockSkew = TimeSpan.FromMinutes(1)
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+        // A1: un access token solo vale mientras su sesión siga activa (cerrar sesión, desactivar
+        // la cuenta o detectar reuso de refresh la revocan en el acto).
+        o.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async ctx =>
+            {
+                var sid = ctx.Principal?.FindFirst(Claims.Sid)?.Value;
+                var sesiones = ctx.HttpContext.RequestServices.GetRequiredService<ServicioSesiones>();
+                if (!Guid.TryParse(sid, out var id) || !await sesiones.EstaActivaAsync(id))
+                    ctx.Fail("Sesión revocada o inexistente.");
+            }
         };
     });
 builder.Services.AddAuthorization();
@@ -143,6 +197,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHealthChecks("/health");

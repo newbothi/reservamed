@@ -23,5 +23,7 @@ fi
 for v in SQL_API_PASS SQL_WORKER_PASS SQL_ML_PASS SQL_ML_SEED_PASS; do
   if [ -z "${!v:-}" ]; then echo "Falta $v (ejecute scripts/configurar-secretos.ps1)." >&2; exit 1; fi
 done
+# F2: identidad y sesiones (idempotente, aplica también sobre bases existentes)
+sa -I -b -i /scripts/05_identidad.sql
 sa -I -b -i /scripts/04_usuarios.sql \
   -v API_PASS="$SQL_API_PASS" WORKER_PASS="$SQL_WORKER_PASS" ML_PASS="$SQL_ML_PASS" ML_SEED_PASS="$SQL_ML_SEED_PASS"
