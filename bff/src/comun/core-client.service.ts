@@ -48,6 +48,31 @@ export class CoreClient {
     return datos as T;
   }
 
+  /**
+   * Reenvío tal cual (proxy del backoffice): devuelve status, tipo y cuerpo de la API sin
+   * interpretarlos. Solo para rutas /api/ ya validadas por el llamador.
+   */
+  async reenviar(metodo: string, ruta: string, token: string, cuerpo?: unknown): Promise<{ status: number; tipo: string; cuerpo: Buffer }> {
+    const headers: Record<string, string> = { Accept: 'application/json', Authorization: token };
+    const ip = ipActual();
+    if (ip) headers['X-Forwarded-For'] = ip;
+    const conCuerpo = cuerpo !== undefined && !['GET', 'HEAD'].includes(metodo);
+    if (conCuerpo) headers['Content-Type'] = 'application/json';
+    let resp: Response;
+    try {
+      resp = await fetch(`${this.base}${ruta}`, {
+        method: metodo,
+        headers,
+        body: conCuerpo ? JSON.stringify(cuerpo) : undefined,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (e) {
+      this.log.error(`API Core no responde: ${metodo} ${ruta} (${(e as Error).message})`);
+      throw new ServiceUnavailableException({ status: 503, title: 'El servicio no está disponible. Intente en unos minutos.' });
+    }
+    return { status: resp.status, tipo: resp.headers.get('content-type') ?? 'application/json', cuerpo: Buffer.from(await resp.arrayBuffer()) };
+  }
+
   get<T>(ruta: string, token?: string) {
     return this.llamar<T>('GET', ruta, { token });
   }

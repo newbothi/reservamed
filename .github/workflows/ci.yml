@@ -45,6 +45,9 @@ jobs:
           dotnet test api-core/tests/ReservaMed.IntegrationTests --no-build -c Release
           --logger "trx;LogFileName=integration.trx" --collect:"XPlat Code Coverage"
           --results-directory TestResults/integration
+      - name: Pruebas fallidas como anotaciones
+        if: failure()
+        run: python3 scripts/ci/anotar.py trx $(find TestResults -name '*.trx')
       - name: Paquetes NuGet vulnerables (informativo)
         if: always()
         continue-on-error: true

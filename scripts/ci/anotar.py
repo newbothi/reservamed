@@ -52,7 +52,28 @@ def trivy(ruta: Path) -> int:
     return 1 if criticas else 0
 
 
+def trx(ruta: Path) -> int:
+    """Pruebas .NET fallidas (archivo .trx) como anotaciones: nombre, mensaje y primeras líneas de la pila."""
+    import xml.etree.ElementTree as ET
+
+    ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+    raiz = ET.parse(ruta).getroot()
+    fallidas = 0
+    for r in raiz.iterfind(".//t:UnitTestResult", ns):
+        if r.get("outcome") != "Failed":
+            continue
+        fallidas += 1
+        msg = r.findtext(".//t:ErrorInfo/t:Message", default="", namespaces=ns).strip()
+        pila = r.findtext(".//t:ErrorInfo/t:StackTrace", default="", namespaces=ns).strip().splitlines()[:6]
+        if fallidas <= 25:
+            print(f"::error title=Prueba fallida: {esc(r.get('testName', '')[-120:])}::{esc(msg[:1500] + chr(10) + chr(10).join(pila))}")
+    c = raiz.find(".//t:ResultSummary/t:Counters", ns)
+    if c is not None:
+        print(f"::notice title=Pruebas {ruta.stem}::{c.get('passed')} pasaron, {c.get('failed')} fallaron de {c.get('total')}")
+    return 1 if fallidas else 0
+
+
 if __name__ == "__main__":
     tipo, *rutas = sys.argv[1:]
-    fn = {"zap": zap, "trivy": trivy}[tipo]
+    fn = {"zap": zap, "trivy": trivy, "trx": trx}[tipo]
     sys.exit(max((fn(Path(r)) for r in rutas), default=0))
