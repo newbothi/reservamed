@@ -203,7 +203,7 @@ function Pow {
 }
 
 function Sql([string]$consulta) {
-    $r = docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $sa -C -d ReservaMed -h -1 -W -b -Q "SET NOCOUNT ON; $consulta" 2>&1
+    $r = docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $sa -C -I -d ReservaMed -h -1 -W -b -Q "SET NOCOUNT ON; $consulta" 2>&1
     return (@($r) | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) -join ' '
 }
 
@@ -357,12 +357,15 @@ if ($recProv) {
 
     # Cita de HOY en Providencia (el bono solo se emite el dia de la atencion). 23:xx:ss no choca con cupos reales.
     $seg = Get-Random -Minimum 1 -Maximum 3000
-    $cita = [int](Sql ("DECLARE @Prof INT, @Prest INT; SELECT TOP 1 @Prof = ProfesionalId, @Prest = PrestacionId FROM dbo.HorariosProfesional WHERE SedeId = $sedeProv ORDER BY Id; " +
+    $salidaSql = (Sql ("DECLARE @Prof INT, @Prest INT; SELECT TOP 1 @Prof = ProfesionalId, @Prest = PrestacionId FROM dbo.HorariosProfesional WHERE SedeId = $sedeProv ORDER BY Id; " +
         "DECLARE @Ini DATETIME2(0) = DATEADD(SECOND, $seg, DATEADD(HOUR, 23, CAST(CAST(SYSDATETIME() AS DATE) AS DATETIME2(0)))); " +
         "INSERT INTO dbo.Citas (PacienteId, ProfesionalId, SedeId, PrestacionId, FechaHoraInicio, FechaHoraFin, Estado, Canal, OcupaCupo, CreadoEn) OUTPUT INSERTED.Id " +
         "VALUES ($pacienteQa, @Prof, $sedeProv, @Prest, @Ini, DATEADD(MINUTE, 20, @Ini), 'RESERVADA', 'PRESENCIAL', 1, SYSDATETIME())"))
-    if ($cita -gt 0) { $citasCreadas.Add($cita) }
-    Info "Cita de prueba de hoy: $cita"
+    $cita = 0
+    if ($salidaSql -match '^\d+$') { $cita = [int]$salidaSql; $citasCreadas.Add($cita); Info "Cita de prueba de hoy: $cita" }
+    else { Falla 'C3' "No se pudo crear la cita de prueba de hoy: $salidaSql" }
+}
+if ($recProv -and $cita -gt 0) {
 
     $r = Pedir $recProv 'POST' "/bff/bo/api/admision/citas/$cita/bono" @{ huellaVerificada = $true; derivadorRut = $null }
     Revisar 'C3' ($r.Status -eq 422 -and (Codigo $r) -eq 'HUELLA_REQUERIDA') 'El navegador diciendo huellaVerificada: true ya no emite bono (422)' "huellaVerificada respondio $($r.Status) $($r.Texto)"

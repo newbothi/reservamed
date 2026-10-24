@@ -205,7 +205,7 @@ function Pow {
 }
 
 function Sql([string]$consulta) {
-    $r = docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $sa -C -d ReservaMed -h -1 -W -b -Q "SET NOCOUNT ON; $consulta" 2>&1
+    $r = docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $sa -C -I -d ReservaMed -h -1 -W -b -Q "SET NOCOUNT ON; $consulta" 2>&1
     return (@($r) | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) -join ' '
 }
 
