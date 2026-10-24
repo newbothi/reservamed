@@ -1,13 +1,13 @@
 # Construye los dos frontends React y los sirve con NGINX sin root (hallazgo M4).
 # Contexto de build: raíz del repositorio. Imágenes fijadas por digest; Dependabot las actualiza.
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS portal
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS portal
 WORKDIR /app
 COPY portal/package*.json ./
 RUN npm ci
 COPY portal/ ./
 RUN npm run build
 
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS backoffice
+FROM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS backoffice
 WORKDIR /app
 COPY backoffice/package*.json ./
 RUN npm ci
