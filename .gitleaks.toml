@@ -19,4 +19,6 @@ regexes = [
   '''CAMBIAR-esta-clave-de-desarrollo-ReservaMed-2026-minimo-32-bytes''',
   '''dev-ml-key-cambiar''',
   '''ReservaMed_2026!''',
+  # Clave PÚBLICA del ambiente de integración de Transbank (comercio 597055555532, tarjetas de prueba).
+  '''579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C''',
 ]

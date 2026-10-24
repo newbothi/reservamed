@@ -40,13 +40,10 @@ public abstract class ConsumidorBase(IConfiguration config, ILogger log) : Backg
 
     private async Task ConsumirAsync(CancellationToken ct)
     {
-        var factory = new ConnectionFactory
-        {
-            HostName = config["RabbitMq:Host"] ?? "localhost",
-            UserName = config["RabbitMq:Usuario"] ?? throw new InvalidOperationException("Falta RabbitMq:Usuario"),
-            Password = config["RabbitMq:Clave"] ?? throw new InvalidOperationException("Falta RabbitMq:Clave"),
-            ClientProvidedName = $"reservamed-worker-{Cola}"
-        };
+        var opciones = config.GetSection("RabbitMq").Get<OpcionesConexionRabbit>() ?? new OpcionesConexionRabbit();
+        if (string.IsNullOrEmpty(opciones.Usuario) || string.IsNullOrEmpty(opciones.Clave))
+            throw new InvalidOperationException("Faltan RabbitMq:Usuario o RabbitMq:Clave.");
+        var factory = FabricaRabbit.Crear(opciones, $"reservamed-worker-{Cola}");
 
         await using var conexion = await factory.CreateConnectionAsync(ct);
         await using var canal = await conexion.CreateChannelAsync(cancellationToken: ct);

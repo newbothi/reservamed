@@ -56,14 +56,12 @@ export class CitasController {
   reservar(
     @Body(new ZodPipe(ReservarSchema)) body: z.infer<typeof ReservarSchema>,
     @Headers('authorization') auth?: string,
-    @Headers('x-forwarded-for') ip?: string,
   ) {
     const inicio = body.inicio.length === 16 ? `${body.inicio}:00` : body.inicio;
     return this.core.post<{ citaId: number; estado: string; inicio: string; expiraEn: string | null }>(
       '/api/citas',
       { ...body, inicio },
       exigirToken(auth),
-      ip,
     );
   }
 

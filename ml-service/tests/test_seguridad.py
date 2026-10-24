@@ -63,3 +63,16 @@ def test_cargar_env_no_sobrescribe_variables_existentes(tmp_path, monkeypatch):
 
     assert os.environ["ML_PRUEBA_A"] == "desde-entorno"
     assert os.environ["ML_PRUEBA_B"] == "con comillas"
+
+
+def test_amqps_valida_certificado_y_nombre(tmp_path):
+    from app.eventos import contexto_tls
+
+    assert contexto_tls("amqp://u:p@localhost/", "") is None
+    ctx = contexto_tls("amqps://u:p@rabbitmq:5671/reservamed", "")
+    assert ctx is not None
+    import ssl
+
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname is True
+    assert ctx.minimum_version >= ssl.TLSVersion.TLSv1_2

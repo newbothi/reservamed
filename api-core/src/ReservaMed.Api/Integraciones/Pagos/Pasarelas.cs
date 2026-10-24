@@ -80,11 +80,63 @@ public interface IPasarelaWebpay
     Task ReversarAsync(string token, int monto, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Simulado: página propia (WebpayMockController), solo en Development o Testing (hallazgo C2).
+/// Integracion: ambiente de integración de Transbank, con tarjetas de prueba.
+/// Produccion: Transbank real.
+/// </summary>
+public enum ModoWebpay { Simulado, Integracion, Produccion }
+
 public sealed class OpcionesWebpay
 {
-    public string UrlPagoMock { get; set; } = "http://localhost/webpay-mock/pagar";
-    public string ReturnUrl { get; set; } = "http://localhost/pago/retorno";
-    public string CodigoComercio { get; set; } = "597055555532";
+    public const string CodigoComercioIntegracion = "597055555532";
+    public static readonly IReadOnlySet<string> EntornosConSimulador =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Development", "Testing" };
+
+    public ModoWebpay Modo { get; set; } = ModoWebpay.Integracion;
+    public string UrlPagoMock { get; set; } = "";
+    public string ReturnUrl { get; set; } = "";
+    public string CodigoComercio { get; set; } = CodigoComercioIntegracion;
+    /// <summary>Tbk-Api-Key-Secret. Va en .env o user-secrets, nunca en appsettings.</summary>
+    public string ApiKey { get; set; } = "";
+    /// <summary>Solo para pruebas: reemplaza el dominio de Transbank.</summary>
+    public string? UrlBase { get; set; }
+    public int TimeoutSegundos { get; set; } = 30;
+
+    public string UrlBaseEfectiva => UrlBase ?? (Modo == ModoWebpay.Produccion
+        ? "https://webpay3g.transbank.cl/"
+        : "https://webpay3gint.transbank.cl/");
+
+    /// <summary>Problemas de configuración. La API no arranca si hay alguno.</summary>
+    public IReadOnlyList<string> Revisar(string entorno)
+    {
+        var problemas = new List<string>();
+        if (!Uri.TryCreate(ReturnUrl, UriKind.Absolute, out var retorno))
+            problemas.Add("Webpay:ReturnUrl debe ser una URL absoluta.");
+
+        if (Modo == ModoWebpay.Simulado)
+        {
+            if (!EntornosConSimulador.Contains(entorno))
+                problemas.Add($"Webpay:Modo=Simulado no está permitido en el entorno '{entorno}': cualquiera podría aprobar su propio pago (hallazgo C2).");
+            if (!Uri.TryCreate(UrlPagoMock, UriKind.Absolute, out _))
+                problemas.Add("Webpay:UrlPagoMock debe ser una URL absoluta.");
+            return problemas;
+        }
+
+        if (string.IsNullOrWhiteSpace(CodigoComercio)) problemas.Add("Falta Webpay:CodigoComercio.");
+        if (string.IsNullOrWhiteSpace(ApiKey)) problemas.Add("Falta el secreto Webpay:ApiKey.");
+
+        if (Modo == ModoWebpay.Produccion)
+        {
+            if (CodigoComercio == CodigoComercioIntegracion)
+                problemas.Add("Webpay:Modo=Produccion con el código de comercio de integración.");
+            if (retorno is not null && retorno.Scheme != Uri.UriSchemeHttps)
+                problemas.Add("Webpay:ReturnUrl debe usar https en producción.");
+            if (UrlBase is not null)
+                problemas.Add("Webpay:UrlBase solo se permite en pruebas.");
+        }
+        return problemas;
+    }
 }
 
 /// <summary>

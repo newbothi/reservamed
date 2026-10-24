@@ -136,19 +136,40 @@ Para ver qué drivers ODBC tiene instalados: `Get-OdbcDriver | Select Name` en P
 
 ## Levantar con Docker
 
+Requiere [mkcert](https://github.com/FiloSottile/mkcert) para el HTTPS local (`winget install FiloSottile.mkcert`).
+
 ```powershell
-pwsh scripts/configurar-secretos.ps1   # o: powershell -File scripts\configurar-secretos.ps1
+powershell -ExecutionPolicy Bypass -File scripts\generar-certificados.ps1   # una vez: CA local + certificados
+powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1    # una vez: claves aleatorias en .env
 docker compose up --build
 ```
 
-`docker compose` se niega a arrancar si falta algún secreto en `.env`; no hay valores por defecto.
+- Portal: https://reservamed.localhost
+- Backoffice: https://reservamed.localhost/backoffice/
 
-- Portal: http://localhost
-- Backoffice: http://localhost/backoffice/
-- RabbitMQ: http://localhost:15672 (usuario `reservamed`, clave `RABBIT_PASS` del `.env`)
-- SQL Server: `localhost,1433` (usuario `sa`, clave del `.env`)
+`docker compose` se niega a arrancar si falta un secreto en `.env`, y NGINX no arranca sin certificados.
+La primera vez, `db-init` crea la base y los usuarios por servicio, y `ml-bootstrap` genera el historial
+sintético y entrena el primer modelo (uno o dos minutos).
 
-La primera vez, el contenedor `db-init` crea la base y carga los datos demo, y el `ml-service` genera el historial sintético y entrena el primer modelo (tarda uno o dos minutos).
+**Qué cambia respecto de la versión 1 (fase 1 de seguridad):**
+
+| | |
+|---|---|
+| HTTPS | TLS 1.2/1.3, `http://` redirige a `https://`, HSTS y CSP estricta |
+| Pago online | Webpay Plus **real, ambiente de integración** de Transbank (requiere Internet). Tarjeta de prueba `4051 8856 0044 6623`, CVV `123`, RUT `11.111.111-1`, clave `123`. El Webpay simulado solo existe en desarrollo local |
+| Red | SQL Server y RabbitMQ están en una red interna, sin puertos en su PC |
+| Usuarios | Cada servicio entra a SQL Server y RabbitMQ con su propio usuario y permisos mínimos; `sa` solo lo usa `db-init` |
+| RabbitMQ | Solo AMQPS (TLS) en el puerto 5671 |
+| Contenedores | Sin root, sistema de archivos de solo lectura, sin capacidades, imágenes fijadas por digest |
+
+Para inspeccionar la base o la consola de RabbitMQ (solo en `127.0.0.1`):
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.depuracion.yml up -d
+```
+
+SQL Server en `localhost,1433` (usuario `sa`, clave `SA_PASSWORD` del `.env`); RabbitMQ en http://localhost:15672
+(usuario `reservamed`, clave `RABBIT_PASS`).
 
 ## Levantar en local (Visual Studio + Node)
 
@@ -172,7 +193,8 @@ Cada push y pull request ejecuta `.github/workflows/ci.yml`:
 | `python` | ruff (incluye reglas bandit) y pytest con cobertura | sí |
 | `secretos` | `configurar-secretos.ps1` genera `.env` válidos y distintos en cada ejecución | sí |
 | `gitleaks` | ningún secreto en el historial de git | sí |
-| `seguridad` | Trivy, Semgrep, `npm audit`, `pip-audit`, paquetes NuGet vulnerables | informativo en F0 |
+| `borde` | levanta el compose completo con HTTPS; verifica TLS, cabeceras, IP real en la auditoría, puertos cerrados, usuarios por servicio y contenedores sin root; ZAP baseline sin alertas altas; Trivy sin vulnerabilidades críticas en las imágenes | sí |
+| `seguridad` | Trivy del repositorio, Semgrep, `npm audit`, `pip-audit`, paquetes NuGet vulnerables | informativo hasta F5 |
 
 Para correr las pruebas en local (opcional): `dotnet test api-core/ReservaMed.slnx` (las de integración necesitan Docker), `npm test` en cada proyecto Node y `python -m pytest` en `ml-service`.
 

@@ -1,0 +1,14 @@
+# Solo para depurar en su PC: publica SQL Server y la consola de RabbitMQ en 127.0.0.1
+# (nunca en todas las interfaces). Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.depuracion.yml up -d
+# La red "datos" es interna y no admite puertos publicados, por eso se agrega "depuracion".
+services:
+  sqlserver:
+    networks: [datos, depuracion]
+    ports: ["127.0.0.1:1433:1433"]
+  rabbitmq:
+    networks: [datos, depuracion]
+    ports: ["127.0.0.1:15672:15672"]
+
+networks:
+  depuracion: {}

@@ -1,6 +1,7 @@
 # ReservaMed v2 — integración continua (fase 0: base y quality gates).
-# Bloquean el merge: dotnet, node, python, secretos, gitleaks.
-# Informativo en F0 (pasa a bloqueante en F5): seguridad.
+# Bloquean el merge: dotnet, node, python, secretos, gitleaks y borde (gate de F1:
+# verificaciones de borde, ZAP sin alertas altas y Trivy sin vulnerabilidades críticas).
+# Informativo (pasa a bloqueante en F5): seguridad (SAST y auditorías de dependencias).
 name: CI
 
 on:
@@ -185,8 +186,93 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0 \
             git /repo --config /repo/.gitleaks.toml --redact --verbose --exit-code 1
 
+  borde:
+    name: Borde (compose, ZAP, Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [dotnet, node, python]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Certificados (openssl) y secretos
+        shell: bash
+        run: |
+          bash scripts/generar-certificados.sh
+          pwsh -NoProfile -File scripts/configurar-secretos.ps1 -SoloDocker
+          grep -E '^SA_PASSWORD=' .env | sed 's/^/export /' >> "$RUNNER_TEMP/sa.env"
+      - name: Construir y levantar
+        run: docker compose up -d --build --quiet-pull
+      - name: Esperar a que el sistema responda por HTTPS
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf --cacert certs/ca.pem https://localhost/health >/dev/null && \
+               docker compose logs ml-service 2>&1 | grep -q "Escuchando" && \
+               docker compose logs worker 2>&1 | grep -q "Escuchando cola"; then
+              echo "Sistema listo ($((i * 5)) s)"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error title=Arranque::El sistema no quedó listo en 7,5 minutos"
+          exit 1
+      - name: Verificaciones de borde (C2 C4 A4 A5 M4 M8 M9)
+        run: |
+          source "$RUNNER_TEMP/sa.env"
+          bash scripts/ci/verificar-borde.sh
+      - name: ZAP baseline (portal y backoffice)
+        if: success() || failure()
+        run: |
+          mkdir -p zap && chmod 777 zap
+          for objetivo in "portal|https://localhost/" "backoffice|https://localhost/backoffice/"; do
+            nombre=${objetivo%%|*}; url=${objetivo#*|}
+            docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
+              zaproxy/zap-stable@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 \
+              zap-baseline.py -t "$url" -m 2 -I -J "zap-$nombre.json" -r "zap-$nombre.html" || true
+          done
+          python3 scripts/ci/anotar.py zap zap/zap-portal.json zap/zap-backoffice.json
+      - name: Trivy api-core
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with: { image-ref: reservamed-api-core, format: json, output: trivy-api-core.json, severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "0", scanners: vuln }
+      - name: Trivy worker
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with: { image-ref: reservamed-worker, format: json, output: trivy-worker.json, severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "0", scanners: vuln, skip-setup-trivy: true }
+      - name: Trivy bff
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with: { image-ref: reservamed-bff, format: json, output: trivy-bff.json, severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "0", scanners: vuln, skip-setup-trivy: true }
+      - name: Trivy ml-service
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with: { image-ref: reservamed-ml-service, format: json, output: trivy-ml-service.json, severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "0", scanners: vuln, skip-setup-trivy: true }
+      - name: Trivy nginx
+        if: success() || failure()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with: { image-ref: reservamed-nginx, format: json, output: trivy-nginx.json, severity: "CRITICAL,HIGH", ignore-unfixed: true, exit-code: "0", scanners: vuln, skip-setup-trivy: true }
+      - name: Gate Trivy (sin críticas)
+        if: success() || failure()
+        run: python3 scripts/ci/anotar.py trivy trivy-*.json
+      - name: Registros si algo falló
+        if: failure()
+        run: |
+          docker compose ps -a --format '{{.Service}} {{.State}} {{.Status}}' | sed 's/^/::warning title=Estado::/'
+          for s in $(docker compose ps -a --format '{{.Service}}'); do
+            estado=$(docker compose ps -a --format '{{.State}} {{.ExitCode}}' "$s")
+            if [[ "$estado" != "running 0" && "$estado" != "exited 0" ]] || [[ "$s" =~ ^(api-core|ml-service|worker|rabbit-init|db-init|ml-bootstrap)$ ]]; then
+              logs=$(docker compose logs --no-color --tail 25 "$s" 2>&1 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+              echo "::warning title=Logs $s ($estado)::$logs"
+            fi
+          done
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reportes-borde
+          path: |
+            zap/
+            trivy-*.json
+          retention-days: 14
+
   seguridad:
-    name: Seguridad (informativo en F0)
+    name: Seguridad (informativo hasta F5)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true

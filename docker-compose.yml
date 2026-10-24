@@ -1,90 +1,180 @@
 # ReservaMed — levanta todo el sistema:  docker compose up --build
-# Portal: http://localhost   Backoffice: http://localhost/backoffice/   RabbitMQ: http://localhost:15672
-# Antes: scripts/configurar-secretos.ps1 (o copie .env.example a .env y complete los valores).
+#   Portal:      https://reservamed.localhost
+#   Backoffice:  https://reservamed.localhost/backoffice/
+#
+# Antes, una vez:
+#   1. scripts/generar-certificados.ps1   (HTTPS local con mkcert; en Linux/macOS: .sh)
+#   2. scripts/configurar-secretos.ps1    (claves aleatorias en .env)
 # Ningún secreto tiene valor por defecto: si falta uno, compose se detiene con un mensaje.
+#
+# Redes (hallazgos A4, A5):
+#   app    — NGINX, BFF y API Core. NGINX y el BFF tienen IP fija: son los únicos proxies en
+#            los que confía la API para X-Forwarded-For. Solo NGINX publica puertos (80 y 443).
+#   datos  — interna, sin salida a Internet ni puertos publicados: SQL Server, RabbitMQ,
+#            Worker y ml-service. Para inspeccionarlos: docker-compose.depuracion.yml.
 
 name: reservamed
 
-x-conexion: &conexion "Server=sqlserver;Database=ReservaMed;User Id=sa;Password=${SA_PASSWORD:?Defina SA_PASSWORD en .env};TrustServerCertificate=True"
-x-conexion-odbc: &conexion_odbc "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;UID=sa;PWD=${SA_PASSWORD:?Defina SA_PASSWORD en .env};TrustServerCertificate=yes"
+x-endurecido: &endurecido
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  restart: unless-stopped
+
+x-solo-lectura: &solo_lectura
+  read_only: true
+  tmpfs: ["/tmp"]
 
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${SA_PASSWORD:?Defina SA_PASSWORD en .env}
       MSSQL_PID: Developer
       TZ: America/Santiago
-    ports: ["1433:1433"]
+    networks: [datos]
     volumes: [sqldata:/var/opt/mssql]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
       interval: 10s
       retries: 12
       start_period: 20s
 
+  # Crea la base (una vez) y los usuarios por servicio (en cada arranque). Único que usa sa.
   db-init:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     depends_on:
       sqlserver: { condition: service_healthy }
     environment:
       SA_PASSWORD: ${SA_PASSWORD:?Defina SA_PASSWORD en .env}
+      SQL_API_PASS: ${SQL_API_PASS:?Defina SQL_API_PASS en .env}
+      SQL_WORKER_PASS: ${SQL_WORKER_PASS:?Defina SQL_WORKER_PASS en .env}
+      SQL_ML_PASS: ${SQL_ML_PASS:?Defina SQL_ML_PASS en .env}
+      SQL_ML_SEED_PASS: ${SQL_ML_SEED_PASS:?Defina SQL_ML_SEED_PASS en .env}
+    networks: [datos]
     volumes: ["./db:/scripts:ro"]
     entrypoint: ["/bin/bash", "/scripts/init.sh"]
+    security_opt: ["no-new-privileges:true"]
     restart: "no"
 
   rabbitmq:
-    image: rabbitmq:4-management-alpine
+    image: rabbitmq:4.1-management-alpine@sha256:54ef5ff505352c1beef05a97ee9bd6ab95b3559a76629ba0119b1d63d8d6e4b2
     environment:
+      # Administrador: solo para la consola y rabbit-init; no tiene permisos en el vhost de la app.
       RABBITMQ_DEFAULT_USER: ${RABBIT_USER:?Defina RABBIT_USER en .env}
       RABBITMQ_DEFAULT_PASS: ${RABBIT_PASS:?Defina RABBIT_PASS en .env}
-    ports: ["5672:5672", "15672:15672"]
+    networks: [datos]
+    volumes:
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/90-reservamed.conf:ro
+      - ./certs/ca.pem:/etc/rabbitmq/certs/ca.pem:ro
+      - ./certs/rabbitmq.crt:/etc/rabbitmq/certs/rabbitmq.crt:ro
+      - ./certs/rabbitmq.key:/etc/rabbitmq/certs/rabbitmq.key:ro
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_listener", "5671"]
       interval: 10s
-      retries: 10
+      retries: 12
+      start_period: 20s
+
+  # Vhost "reservamed" y un usuario por servicio con permisos mínimos (A5/M9).
+  rabbit-init:
+    image: curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    environment:
+      RABBIT_USER: ${RABBIT_USER}
+      RABBIT_PASS: ${RABBIT_PASS}
+      RABBIT_API_PASS: ${RABBIT_API_PASS:?Defina RABBIT_API_PASS en .env}
+      RABBIT_WORKER_PASS: ${RABBIT_WORKER_PASS:?Defina RABBIT_WORKER_PASS en .env}
+      RABBIT_ML_PASS: ${RABBIT_ML_PASS:?Defina RABBIT_ML_PASS en .env}
+    networks: [datos]
+    volumes: ["./infra/rabbitmq/init.sh:/init.sh:ro"]
+    entrypoint: ["/bin/sh", "/init.sh"]
+    <<: *endurecido
+    restart: "no"
 
   api-core:
     build: { context: ./api-core, dockerfile: Dockerfile.api }
     depends_on:
       db-init: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      rabbit-init: { condition: service_completed_successfully }
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__ReservaMed: *conexion
+      ConnectionStrings__ReservaMed: "Server=sqlserver;Database=ReservaMed;User Id=rm_api;Password=${SQL_API_PASS};TrustServerCertificate=True"
       RabbitMq__Host: rabbitmq
-      RabbitMq__Usuario: ${RABBIT_USER}
-      RabbitMq__Clave: ${RABBIT_PASS}
+      RabbitMq__Usuario: rm_api
+      RabbitMq__Clave: ${RABBIT_API_PASS}
+      RabbitMq__VirtualHost: reservamed
+      RabbitMq__Tls: "true"
+      RabbitMq__CaCert: /certs/ca.pem
       Jwt__Key: ${JWT_KEY:?Defina JWT_KEY en .env}
-      Webpay__UrlPagoMock: http://localhost/webpay-mock/pagar
-      Webpay__ReturnUrl: http://localhost/pago/retorno
+      # C2: Webpay real en ambiente de integración de Transbank (tarjetas de prueba).
+      Webpay__Modo: Integracion
+      Webpay__ReturnUrl: https://reservamed.localhost/pago/retorno
+      Webpay__ApiKey: ${WEBPAY_API_KEY:?Defina WEBPAY_API_KEY en .env}
+      # A4: solo NGINX y el BFF pueden informar la IP del cliente.
+      Proxy__IpsConfiables__0: 172.30.1.10
+      Proxy__IpsConfiables__1: 172.30.1.20
       Ml__Url: http://ml-service:8000
       Ml__ApiKey: ${ML_API_KEY:?Defina ML_API_KEY en .env}
+    networks:
+      app: { ipv4_address: 172.30.1.30 }
+      datos: {}
+    volumes: ["./certs/ca.pem:/certs/ca.pem:ro"]
+    <<: [*endurecido, *solo_lectura]
 
   worker:
     build: { context: ./api-core, dockerfile: Dockerfile.worker }
     depends_on:
       db-init: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      rabbit-init: { condition: service_completed_successfully }
     environment:
-      ConnectionStrings__ReservaMed: *conexion
+      DOTNET_ENVIRONMENT: Production
+      ConnectionStrings__ReservaMed: "Server=sqlserver;Database=ReservaMed;User Id=rm_worker;Password=${SQL_WORKER_PASS};TrustServerCertificate=True"
       RabbitMq__Host: rabbitmq
-      RabbitMq__Usuario: ${RABBIT_USER}
-      RabbitMq__Clave: ${RABBIT_PASS}
+      RabbitMq__Usuario: rm_worker
+      RabbitMq__Clave: ${RABBIT_WORKER_PASS}
+      RabbitMq__VirtualHost: reservamed
+      RabbitMq__Tls: "true"
+      RabbitMq__CaCert: /certs/ca.pem
+    networks: [datos]
+    volumes: ["./certs/ca.pem:/certs/ca.pem:ro"]
+    <<: [*endurecido, *solo_lectura]
 
-  # Machine learning en Python. Sin puertos publicados: sólo la API Core y RabbitMQ lo alcanzan.
+  # Primera vez: historial sintético y primer modelo. Usuario rm_ml_seed (inserta pacientes y citas sintéticas).
+  ml-bootstrap:
+    build: ./ml-service
+    command: ["python", "-m", "scripts.bootstrap"]
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+    environment:
+      ML_DB: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;UID=rm_ml_seed;PWD=${SQL_ML_SEED_PASS};TrustServerCertificate=yes"
+      ML_API_KEY: ${ML_API_KEY}
+      ML_CONSUMIR_EVENTOS: "false"
+    networks: [datos]
+    volumes: [modelos:/data/modelos]
+    <<: [*endurecido, *solo_lectura]
+    restart: "no"
+
+  # ml-service en ejecución: usuario rm_ml (lee lo necesario, escribe solo sus tablas). Sin puertos publicados.
   ml-service:
     build: ./ml-service
     depends_on:
-      db-init: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      ml-bootstrap: { condition: service_completed_successfully }
+      rabbit-init: { condition: service_completed_successfully }
     environment:
-      ML_DB: *conexion_odbc
-      ML_RABBIT_URL: amqp://${RABBIT_USER}:${RABBIT_PASS}@rabbitmq/
+      ML_DB: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;UID=rm_ml;PWD=${SQL_ML_PASS};TrustServerCertificate=yes"
+      ML_RABBIT_URL: amqps://rm_ml:${RABBIT_ML_PASS}@rabbitmq:5671/reservamed
+      ML_RABBIT_CA: /certs/ca.pem
       ML_API_KEY: ${ML_API_KEY:?Defina ML_API_KEY en .env}
-      ML_BOOTSTRAP: "true"   # primera vez: genera historial sintético y entrena
-    volumes: [modelos:/data/modelos]
+    networks: [datos]
+    volumes:
+      - modelos:/data/modelos
+      - ./certs/ca.pem:/certs/ca.pem:ro
+    <<: [*endurecido, *solo_lectura]
 
   bff:
     build: ./bff
@@ -92,11 +182,28 @@ services:
     environment:
       API_CORE_URL: http://api-core:8080
       PORT: "3000"
+      TRUSTED_PROXIES: 172.30.1.10   # A4: solo NGINX
+    networks:
+      app: { ipv4_address: 172.30.1.20 }
+    <<: [*endurecido, *solo_lectura]
 
   nginx:
     build: { context: ., dockerfile: nginx/Dockerfile }
     depends_on: [bff, api-core]
-    ports: ["80:80"]
+    ports: ["80:8080", "443:8443"]
+    networks:
+      app: { ipv4_address: 172.30.1.10 }
+    volumes:
+      - ./certs/reservamed.crt:/etc/nginx/certs/reservamed.crt:ro
+      - ./certs/reservamed.key:/etc/nginx/certs/reservamed.key:ro
+    <<: [*endurecido, *solo_lectura]
+
+networks:
+  app:
+    ipam:
+      config: [{ subnet: 172.30.1.0/24 }]
+  datos:
+    internal: true
 
 volumes:
   sqldata:

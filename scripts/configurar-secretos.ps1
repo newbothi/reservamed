@@ -5,11 +5,15 @@
 .DESCRIPTION
   - API Core: guarda Jwt:Key y Ml:ApiKey en "dotnet user-secrets" (fuera de la carpeta del proyecto).
   - ml-service: escribe ml-service/.env con la misma ML_API_KEY y la conexión ODBC.
-  - Docker: escribe .env en la raíz con contraseñas aleatorias para SQL Server, RabbitMQ, JWT y ML.
+  - Docker: escribe .env en la raíz con contraseñas aleatorias: sa (solo db-init), un usuario SQL por
+    servicio, el administrador de RabbitMQ y un usuario por servicio, JWT y ML (hallazgos C1 y A5).
   Los archivos .env están en .gitignore. Si ya existen, se reutilizan sus valores salvo que use -Forzar.
 
 .PARAMETER Forzar
   Regenera todos los secretos aunque ya existan.
+
+.PARAMETER SoloDocker
+  Solo escribe .env (no toca user-secrets ni ml-service/.env). Lo usa CI.
 
 .PARAMETER DriverOdbc
   Driver ODBC para el ml-service local (por defecto "ODBC Driver 18 for SQL Server").
@@ -19,6 +23,7 @@
 #>
 param(
     [switch]$Forzar,
+    [switch]$SoloDocker,
     [string]$DriverOdbc = "ODBC Driver 18 for SQL Server"
 )
 
@@ -64,7 +69,22 @@ $mlKey   = Valor-O-Nuevo $ml "ML_API_KEY" { Nuevo-Secreto 32 }
 $jwtKey  = Valor-O-Nuevo $docker "JWT_KEY" { Nuevo-Secreto 48 }
 $saPass  = Valor-O-Nuevo $docker "SA_PASSWORD" { "Rm1!" + (Nuevo-Secreto 18) }
 $rbPass  = Valor-O-Nuevo $docker "RABBIT_PASS" { Nuevo-Secreto 24 }
+# A5: un usuario por servicio en SQL Server y RabbitMQ.
+$sqlApi    = Valor-O-Nuevo $docker "SQL_API_PASS" { "Rm1!" + (Nuevo-Secreto 18) }
+$sqlWorker = Valor-O-Nuevo $docker "SQL_WORKER_PASS" { "Rm1!" + (Nuevo-Secreto 18) }
+$sqlMl     = Valor-O-Nuevo $docker "SQL_ML_PASS" { "Rm1!" + (Nuevo-Secreto 18) }
+$sqlSeed   = Valor-O-Nuevo $docker "SQL_ML_SEED_PASS" { "Rm1!" + (Nuevo-Secreto 18) }
+$rbApi     = Valor-O-Nuevo $docker "RABBIT_API_PASS" { Nuevo-Secreto 24 }
+$rbWorker  = Valor-O-Nuevo $docker "RABBIT_WORKER_PASS" { Nuevo-Secreto 24 }
+$rbMl      = Valor-O-Nuevo $docker "RABBIT_ML_PASS" { Nuevo-Secreto 24 }
 
+# C2: en Docker, Webpay usa el ambiente de INTEGRACIÓN de Transbank. Esta clave es pública
+# (documentación de Transbank, comercio 597055555532) y solo sirve con tarjetas de prueba.
+# En producción se reemplaza por la clave real del comercio.
+$webpayIntegracion = "579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C"
+$webpayKey = if ($docker.ContainsKey("WEBPAY_API_KEY") -and $docker["WEBPAY_API_KEY"]) { $docker["WEBPAY_API_KEY"] } else { $webpayIntegracion }
+
+if (-not $SoloDocker) {
 # --- API Core: user-secrets ---
 $api = Join-Path $raiz "api-core/src/ReservaMed.Api"
 dotnet user-secrets set "Jwt:Key" $jwtKey --project $api | Out-Null
@@ -78,6 +98,7 @@ Escribir-Env $envMl @(
     "ML_DB=DRIVER={$DriverOdbc};SERVER=localhost;DATABASE=ReservaMed;Trusted_Connection=yes;TrustServerCertificate=yes"
 )
 Write-Host "ml-service: .env escrito (misma ML_API_KEY que la API)." -ForegroundColor Green
+}
 
 # --- .env para docker compose ---
 Escribir-Env $envDocker @(
@@ -87,8 +108,19 @@ Escribir-Env $envDocker @(
     "ML_API_KEY=$mlKey"
     "RABBIT_USER=reservamed"
     "RABBIT_PASS=$rbPass"
+    "SQL_API_PASS=$sqlApi"
+    "SQL_WORKER_PASS=$sqlWorker"
+    "SQL_ML_PASS=$sqlMl"
+    "SQL_ML_SEED_PASS=$sqlSeed"
+    "RABBIT_API_PASS=$rbApi"
+    "RABBIT_WORKER_PASS=$rbWorker"
+    "RABBIT_ML_PASS=$rbMl"
+    "WEBPAY_API_KEY=$webpayKey"
 )
 Write-Host "Docker: .env escrito en la raíz del proyecto." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Listo. Reinicie la API en Visual Studio y el ml-service para que tomen los nuevos valores."
+if (-not (Test-Path (Join-Path $raiz "certs/reservamed.crt"))) {
+    Write-Host "Para Docker falta HTTPS: ejecute scripts/generar-certificados.ps1 (requiere mkcert)." -ForegroundColor Yellow
+}

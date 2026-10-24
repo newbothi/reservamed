@@ -17,20 +17,38 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
     public const string ClaveJwtPrueba = "pruebas-integracion-7Gq2xV9mK4tR8wZ1nB6cY3hL5sJ0dF";
     private const string ApiKeyMlPrueba = "ml-pruebas-integracion-Xp4Lk8Wq2Zr6";
     private const string ClaveRabbitPrueba = "rabbit-pruebas-Nf7Tq3Vb";
+    // A5: la API de pruebas entra como rm_api (no sa), así las pruebas verifican los permisos mínimos.
+    private const string ClaveSqlApi = "Rm1!pruebas-Api-9xQ2";
+    private static readonly Dictionary<string, string> VariablesUsuarios = new()
+    {
+        ["API_PASS"] = ClaveSqlApi,
+        ["WORKER_PASS"] = "Rm1!pruebas-Worker-4kT8",
+        ["ML_PASS"] = "Rm1!pruebas-Ml-6pZ3",
+        ["ML_SEED_PASS"] = "Rm1!pruebas-Seed-2wJ7",
+    };
 
     private readonly MsSqlContainer _sql = new MsSqlBuilder()
         .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
         .Build();
+
+    /// <summary>Cadena con la que corre la API (usuario rm_api).</summary>
+    public string CadenaApi { get; private set; } = "";
 
     public async Task InitializeAsync()
     {
         await _sql.StartAsync();
         await EjecutarScriptsAsync();
 
-        var cs = new SqlConnectionStringBuilder(_sql.GetConnectionString()) { InitialCatalog = "ReservaMed" }.ConnectionString;
+        var cs = new SqlConnectionStringBuilder(_sql.GetConnectionString())
+        {
+            InitialCatalog = "ReservaMed",
+            UserID = "rm_api",
+            Password = ClaveSqlApi
+        }.ConnectionString;
 
         // Variables de entorno: la API las lee en Program.cs antes de construir el host,
         // así que se definen antes de que la fábrica la arranque.
+        CadenaApi = cs;
         Environment.SetEnvironmentVariable("ConnectionStrings__ReservaMed", cs);
         Environment.SetEnvironmentVariable("Jwt__Key", ClaveJwtPrueba);
         Environment.SetEnvironmentVariable("Ml__ApiKey", ApiKeyMlPrueba);
@@ -38,6 +56,10 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         Environment.SetEnvironmentVariable("RabbitMq__Host", "127.0.0.1");
         Environment.SetEnvironmentVariable("RabbitMq__Usuario", "pruebas");
         Environment.SetEnvironmentVariable("RabbitMq__Clave", ClaveRabbitPrueba);
+        // Testing permite el simulador de Webpay; Production lo rechaza al arrancar (C2).
+        Environment.SetEnvironmentVariable("Webpay__Modo", "Simulado");
+        Environment.SetEnvironmentVariable("Webpay__UrlPagoMock", "http://localhost/webpay-mock/pagar");
+        Environment.SetEnvironmentVariable("Webpay__ReturnUrl", "http://localhost/pago/retorno");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
@@ -49,7 +71,7 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         await _sql.DisposeAsync();
     }
 
-    /// <summary>Ejecuta db/01..03 separando los lotes por la palabra GO, igual que sqlcmd.</summary>
+    /// <summary>Ejecuta db/01..04 separando los lotes por GO y reemplazando $(VARIABLE), igual que sqlcmd.</summary>
     private async Task EjecutarScriptsAsync()
     {
         var carpetaDb = BuscarCarpetaDb();
@@ -59,6 +81,8 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         foreach (var archivo in Directory.GetFiles(carpetaDb, "0*.sql").Order())
         {
             var texto = await File.ReadAllTextAsync(archivo);
+            foreach (var (nombre, valor) in VariablesUsuarios)
+                texto = texto.Replace($"$({nombre})", valor);
             foreach (var lote in SeparadorGo().Split(texto).Where(l => !string.IsNullOrWhiteSpace(l)))
             {
                 await using var cmd = new SqlCommand(lote, cn) { CommandTimeout = 120 };

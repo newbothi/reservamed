@@ -1,4 +1,5 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# M4: imágenes fijadas por digest y ejecución sin root.
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
 WORKDIR /src
 COPY src/ReservaMed.Contracts/ReservaMed.Contracts.csproj src/ReservaMed.Contracts/
 COPY src/ReservaMed.Worker/ReservaMed.Worker.csproj src/ReservaMed.Worker/
@@ -6,8 +7,9 @@ RUN dotnet restore src/ReservaMed.Worker/ReservaMed.Worker.csproj
 COPY src/ src/
 RUN dotnet publish src/ReservaMed.Worker/ReservaMed.Worker.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
+FROM mcr.microsoft.com/dotnet/runtime:10.0-noble-chiseled-extra@sha256:2e4f4e0a8f0807397c91585b3b6142989b43e9030a6494af1b7abd251b915de1
 WORKDIR /app
 ENV TZ=America/Santiago
 COPY --from=build /app .
+USER $APP_UID
 ENTRYPOINT ["dotnet", "ReservaMed.Worker.dll"]

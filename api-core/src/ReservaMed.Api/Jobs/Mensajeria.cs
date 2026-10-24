@@ -8,15 +8,8 @@ using ReservaMed.Contracts;
 
 namespace ReservaMed.Api.Jobs;
 
-public sealed class OpcionesRabbit
-{
-    public string Host { get; set; } = "localhost";
-    public string Usuario { get; set; } = "";
-    public string Clave { get; set; } = "";
-}
-
 /// <summary>Publicador hacia RabbitMQ con conexión perezosa y reconexión simple.</summary>
-public sealed class PublicadorRabbit(IOptions<OpcionesRabbit> opciones, ILogger<PublicadorRabbit> log) : IAsyncDisposable
+public sealed class PublicadorRabbit(IOptions<OpcionesConexionRabbit> opciones, ILogger<PublicadorRabbit> log) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
     private IConnection? _conexion;
@@ -55,11 +48,11 @@ public sealed class PublicadorRabbit(IOptions<OpcionesRabbit> opciones, ILogger<
         await CerrarAsync();
 
         var o = opciones.Value;
-        var factory = new ConnectionFactory { HostName = o.Host, UserName = o.Usuario, Password = o.Clave, ClientProvidedName = "reservamed-api" };
+        var factory = FabricaRabbit.Crear(o, "reservamed-api");
         _conexion = await factory.CreateConnectionAsync(ct);
         _canal = await _conexion.CreateChannelAsync(cancellationToken: ct);
         await _canal.ExchangeDeclareAsync(TiposEvento.Exchange, ExchangeType.Topic, durable: true, cancellationToken: ct);
-        log.LogInformation("Conectado a RabbitMQ en {Host}", o.Host);
+        log.LogInformation("Conectado a RabbitMQ en {Host}:{Puerto} (vhost {Vhost}, TLS {Tls})", o.Host, factory.Port, o.VirtualHost, o.Tls);
         return _canal;
     }
 

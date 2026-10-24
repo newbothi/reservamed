@@ -28,3 +28,6 @@ test-results/
 
 # Modelos entrenados (se regeneran)
 ml-service/modelos/
+
+# Certificados locales (mkcert/openssl): nunca al repositorio
+certs/

@@ -1,19 +1,27 @@
 #!/bin/bash
-# Espera a que SQL Server acepte conexiones y ejecuta los scripts una sola vez.
-set -e
+# Espera a SQL Server, crea la base una sola vez y (en cada arranque) configura los
+# usuarios por servicio (A5). Es el único proceso que usa sa.
+set -euo pipefail
 SQLCMD=/opt/mssql-tools18/bin/sqlcmd
+sa() { $SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C "$@"; }
+
 for i in $(seq 1 60); do
-  if $SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C -Q "SELECT 1" >/dev/null 2>&1; then break; fi
+  if sa -Q "SELECT 1" >/dev/null 2>&1; then break; fi
   echo "Esperando SQL Server ($i)..."; sleep 2
 done
 
-EXISTE=$($SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C -h -1 -W -Q "SET NOCOUNT ON; SELECT COUNT(1) FROM sys.databases WHERE name='ReservaMed'")
+EXISTE=$(sa -h -1 -W -Q "SET NOCOUNT ON; SELECT COUNT(1) FROM sys.databases WHERE name='ReservaMed'")
 if [ "$EXISTE" = "1" ]; then
-  echo "La base ReservaMed ya existe; no se ejecutan scripts."
-  exit 0
+  echo "La base ReservaMed ya existe; no se ejecutan los scripts de esquema."
+else
+  sa -I -b -i /scripts/01_schema.sql
+  sa -I -b -i /scripts/02_seed.sql
+  sa -I -b -i /scripts/03_ml.sql
+  echo "Base ReservaMed creada con datos demo."
 fi
 
-$SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C -I -b -i /scripts/01_schema.sql
-$SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C -I -b -i /scripts/02_seed.sql
-$SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C -I -b -i /scripts/03_ml.sql
-echo "Base ReservaMed creada con datos demo."
+for v in SQL_API_PASS SQL_WORKER_PASS SQL_ML_PASS SQL_ML_SEED_PASS; do
+  if [ -z "${!v:-}" ]; then echo "Falta $v (ejecute scripts/configurar-secretos.ps1)." >&2; exit 1; fi
+done
+sa -I -b -i /scripts/04_usuarios.sql \
+  -v API_PASS="$SQL_API_PASS" WORKER_PASS="$SQL_WORKER_PASS" ML_PASS="$SQL_ML_PASS" ML_SEED_PASS="$SQL_ML_SEED_PASS"

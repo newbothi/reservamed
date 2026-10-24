@@ -56,6 +56,8 @@ class Config:
         "Trusted_Connection=yes;TrustServerCertificate=yes",
     ))
     rabbit_url: str = field(default_factory=lambda: os.getenv("ML_RABBIT_URL", "amqp://guest:guest@localhost/"))
+    # M9: con amqps:// se valida el certificado del broker contra esta CA (certs/ca.pem).
+    rabbit_ca: str = field(default_factory=lambda: os.getenv("ML_RABBIT_CA", ""))
     api_key: str = field(default_factory=lambda: os.getenv("ML_API_KEY", ""))
     carpeta_modelos: str = field(default_factory=lambda: os.getenv("ML_MODELOS", "modelos"))
     # Al iniciar: si no hay historial genera datos sintéticos y entrena (útil para la demo en Docker).

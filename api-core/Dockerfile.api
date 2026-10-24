@@ -1,4 +1,5 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# M4: imágenes fijadas por digest (Dependabot las actualiza) y ejecución sin root.
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
 WORKDIR /src
 COPY src/ReservaMed.Contracts/ReservaMed.Contracts.csproj src/ReservaMed.Contracts/
 COPY src/ReservaMed.Api/ReservaMed.Api.csproj src/ReservaMed.Api/
@@ -6,10 +7,13 @@ RUN dotnet restore src/ReservaMed.Api/ReservaMed.Api.csproj
 COPY src/ src/
 RUN dotnet publish src/ReservaMed.Api/ReservaMed.Api.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# chiseled: sin shell ni gestor de paquetes, usuario "app" (no root) por defecto.
+# "-extra" incluye ICU y zonas horarias (cultura es-CL y hora de America/Santiago).
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra@sha256:9e3919aff68057f3e45125c5255a71d3b5f40364e45ede883348688851b9f0df
 WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8080 \
     TZ=America/Santiago
 COPY --from=build /app .
+USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "ReservaMed.Api.dll"]

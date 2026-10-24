@@ -17,21 +17,10 @@ log = logging.getLogger("ml")
 
 
 async def _bootstrap() -> None:
-    """Demo en Docker: si no hay historial, genera datos sintéticos y entrena el primer modelo."""
-    from scripts.generar_datos import generar
+    """Demo local opcional (ML_BOOTSTRAP=true). En Docker lo hace el servicio ml-bootstrap."""
+    from .bootstrap import preparar
 
-    for intento in range(30):
-        try:
-            if await asyncio.to_thread(servicio.metadata_activo) is not None:
-                return
-            if await asyncio.to_thread(servicio.muestras_disponibles) < 500:
-                log.info("Sin historial suficiente: generando datos sintéticos…")
-                await asyncio.to_thread(generar, 18, 1500, False)
-            await asyncio.to_thread(servicio.entrenar)
-            return
-        except Exception as e:
-            log.warning("Bootstrap ML: base no disponible todavía (%s). Intento %d.", e, intento + 1)
-            await asyncio.sleep(10)
+    await asyncio.to_thread(preparar)
 
 
 @asynccontextmanager

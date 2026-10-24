@@ -1,4 +1,5 @@
 import { HttpException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ipActual } from './contexto-ip';
 
 type Metodo = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -12,11 +13,13 @@ export class CoreClient {
   private readonly log = new Logger(CoreClient.name);
   private readonly base = (process.env.API_CORE_URL ?? 'http://localhost:5080').replace(/\/$/, '');
 
-  async llamar<T>(metodo: Metodo, ruta: string, opciones: { token?: string; cuerpo?: unknown; ip?: string } = {}): Promise<T> {
+  async llamar<T>(metodo: Metodo, ruta: string, opciones: { token?: string; cuerpo?: unknown } = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (opciones.cuerpo !== undefined) headers['Content-Type'] = 'application/json';
     if (opciones.token) headers.Authorization = opciones.token;
-    if (opciones.ip) headers['X-Forwarded-For'] = opciones.ip;
+    // A4: IP calculada por Express (solo confía en NGINX), nunca la cabecera del navegador.
+    const ip = ipActual();
+    if (ip) headers['X-Forwarded-For'] = ip;
 
     let resp: Response;
     try {
@@ -49,7 +52,7 @@ export class CoreClient {
     return this.llamar<T>('GET', ruta, { token });
   }
 
-  post<T>(ruta: string, cuerpo: unknown, token?: string, ip?: string) {
-    return this.llamar<T>('POST', ruta, { cuerpo, token, ip });
+  post<T>(ruta: string, cuerpo: unknown, token?: string) {
+    return this.llamar<T>('POST', ruta, { cuerpo, token });
   }
 }

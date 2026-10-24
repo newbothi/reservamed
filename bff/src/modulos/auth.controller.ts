@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CoreClient } from '../comun/core-client.service';
 import { Sesion } from '../comun/tipos';
@@ -39,8 +39,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
-  login(@Body(new ZodPipe(LoginSchema)) body: z.infer<typeof LoginSchema>, @Headers('x-forwarded-for') ip?: string) {
-    return this.core.post<Sesion>('/api/auth/login', body, undefined, ip);
+  login(@Body(new ZodPipe(LoginSchema)) body: z.infer<typeof LoginSchema>) {
+    return this.core.post<Sesion>('/api/auth/login', body);
   }
 
   @Post('registro')

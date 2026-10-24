@@ -6,6 +6,7 @@ La reserva nunca espera al modelo: todo ocurre de forma asíncrona.
 import asyncio
 import json
 import logging
+import ssl
 
 import aio_pika
 
@@ -31,10 +32,20 @@ async def _procesar(mensaje: aio_pika.abc.AbstractIncomingMessage) -> None:
             log.warning("Cita %s sin predicción: aún no hay modelo entrenado.", cita_id)
 
 
+def contexto_tls(url: str, ca: str) -> ssl.SSLContext | None:
+    """M9: amqps:// valida el certificado del broker (y su nombre) contra la CA local."""
+    if not url.startswith("amqps://"):
+        return None
+    ctx = ssl.create_default_context(cafile=ca or None)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 async def consumir() -> None:
+    tls = contexto_tls(config.rabbit_url, config.rabbit_ca)
     while True:
         try:
-            conexion = await aio_pika.connect_robust(config.rabbit_url)
+            conexion = await aio_pika.connect_robust(config.rabbit_url, ssl_context=tls)
             async with conexion:
                 canal = await conexion.channel()
                 await canal.set_qos(prefetch_count=10)

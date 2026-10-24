@@ -25,10 +25,23 @@ ValidacionSecretos.Exigir(
     new("RabbitMq:Clave", builder.Configuration["RabbitMq:Clave"], ValidacionSecretos.LargoMinimoClave, ToleradoEnDesarrollo: true)
 ], builder.Environment.IsDevelopment());
 
+// ---------- Webpay (C2): el simulador no existe fuera de Development/Testing ----------
+var opcionesWebpay = builder.Configuration.GetSection("Webpay").Get<OpcionesWebpay>() ?? new OpcionesWebpay();
+var problemasWebpay = opcionesWebpay.Revisar(builder.Environment.EnvironmentName);
+if (problemasWebpay.Count > 0)
+    throw new InvalidOperationException("Configuración de Webpay inválida:" + Environment.NewLine +
+        string.Join(Environment.NewLine, problemasWebpay.Select(p => " - " + p)));
+var webpaySimulado = opcionesWebpay.Modo == ModoWebpay.Simulado;
+
+// ---------- RabbitMQ (M9): AMQPS obligatorio en producción ----------
+var problemasRabbit = (builder.Configuration.GetSection("RabbitMq").Get<OpcionesConexionRabbit>() ?? new()).Revisar(builder.Environment.IsProduction());
+if (problemasRabbit.Count > 0)
+    throw new InvalidOperationException(string.Join(Environment.NewLine, problemasRabbit));
+
 // ---------- Configuración ----------
 builder.Services.Configure<ReglasNegocio>(builder.Configuration.GetSection("Reglas"));
 builder.Services.Configure<OpcionesJwt>(builder.Configuration.GetSection("Jwt"));
-builder.Services.Configure<OpcionesRabbit>(builder.Configuration.GetSection("RabbitMq"));
+builder.Services.Configure<OpcionesConexionRabbit>(builder.Configuration.GetSection("RabbitMq"));
 builder.Services.Configure<OpcionesWebpay>(builder.Configuration.GetSection("Webpay"));
 builder.Services.Configure<OpcionesPos>(builder.Configuration.GetSection("Pos"));
 
@@ -41,8 +54,16 @@ builder.Services.AddScoped<IAuditoria, ServicioAuditoria>();
 // ---------- Integraciones externas (mocks intercambiables por clientes reales) ----------
 builder.Services.AddSingleton<IEmisorBonos, ImedMock>();
 builder.Services.AddSingleton<ITerminalPos, PosMock>();
-builder.Services.AddSingleton<WebpayMock>();
-builder.Services.AddSingleton<IPasarelaWebpay>(sp => sp.GetRequiredService<WebpayMock>());
+if (webpaySimulado)
+{
+    builder.Services.AddSingleton<WebpayMock>();
+    builder.Services.AddSingleton<IPasarelaWebpay>(sp => sp.GetRequiredService<WebpayMock>());
+}
+else
+{
+    builder.Services.AddHttpClient<IPasarelaWebpay, WebpayTransbank>((sp, http) =>
+        WebpayTransbank.Configurar(http, sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OpcionesWebpay>>().Value));
+}
 
 // ---------- Machine learning (ml-service en Python, sólo red interna) ----------
 builder.Services.Configure<OpcionesMl>(builder.Configuration.GetSection("Ml"));
@@ -70,19 +91,20 @@ builder.Services.AddHostedService<RecordatoriosJob>();
 
 // ---------- Web ----------
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
+    .ConfigureApplicationPartManager(m =>
+    {
+        if (!webpaySimulado) m.FeatureProviders.Add(new QuitarControladores(typeof(WebpayMockController)));
+    });
+builder.WebHost.ConfigureKestrel(k => k.AddServerHeader = false);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ManejadorErrores>();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 
+// A4: solo NGINX y el BFF (IPs fijas en Docker) pueden informar la IP del cliente.
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
-{
-    // Detrás de NGINX: tomar la IP real del cliente para la auditoría.
-    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    o.KnownNetworks.Clear();
-    o.KnownProxies.Clear();
-});
+    ProxiesConfiables.Configurar(o, builder.Configuration.GetSection("Proxy:IpsConfiables").Get<string[]>()));
 
 builder.Services.AddCors(o => o.AddPolicy("dev", p => p
     .WithOrigins(builder.Configuration.GetSection("Cors:Origenes").Get<string[]>() ?? Array.Empty<string>())
