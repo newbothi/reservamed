@@ -172,7 +172,19 @@ sintético y entrena el primer modelo (uno o dos minutos).
 | Registro | Contraseña de 12+ caracteres que no esté filtrada (Have I Been Pwned, k-anonimato) ni contenga su nombre o correo; activación por correo; respuesta idéntica exista o no la cuenta; prueba anti-bots propia (sin Google ni Cloudflare) en registro y reservas; máximo 2 reservas sin pagar |
 | Correo | Los correos de prueba llegan a **Mailpit**: http://127.0.0.1:8025 (solo desde este PC) |
 
-Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
+**Fase 3 de seguridad (autorización y dominio):**
+
+| | |
+|---|---|
+| Acceso por objeto | Una sola política decide quién ve cada cita y paciente: recepción solo su sede (aunque cambie `sedeId`), el médico solo sus citas y los pacientes que atiende (también en FHIR y en el riesgo de ML), el paciente solo lo suyo. Lo ajeno responde igual que lo inexistente |
+| Huella | El bono ya no se emite porque el navegador diga "huella verificada": la API entrega un desafío de un solo uso, el **lector de la sede firma la lectura** y la API valida firma, sede, cita, RUT y hora. En esta demo el lector es un simulador del BFF (botones *Leer huella* / *Simular fallo*) |
+| Webpay | La confirmación compara monto, orden de compra y estado con lo registrado; si no coincide, reversa. Confirmar dos veces (doble clic, recarga) cobra y confirma una sola vez |
+| Validación | Cada solicitud se valida antes de la lógica (FluentValidation): datos inválidos responden 400 con el campo, nunca un error 500 |
+| Reservas | La regla "una hora por día con el mismo profesional" se aplica de forma atómica, también con reservas simultáneas |
+
+La **matriz rol × endpoint** (cada endpoint con anónimo, dos pacientes, recepción de cada sede, médico y admin) corre en CI y falla si aparece un endpoint sin caso.
+
+Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1` y `scripts\verificar-fase3.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
 
 Para inspeccionar la base o la consola de RabbitMQ (solo en `127.0.0.1`):
 
@@ -185,8 +197,8 @@ SQL Server en `localhost,1433` (usuario `sa`, clave `SA_PASSWORD` del `.env`); R
 
 ## Levantar en local (Visual Studio + Node)
 
-0. **Secretos (una vez):** desde la raíz ejecute `powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1`. Genera claves aleatorias y las guarda en *user-secrets* de .NET (`Jwt:Key`, `Ml:ApiKey`, `Seguridad:TotpClave`), en `ml-service/.env`, `bff/.env` y `.env`. Si ya lo había ejecutado antes de la fase 2, vuelva a ejecutarlo (conserva las claves existentes y agrega las nuevas). Ninguno de esos archivos se sube a git. Sin este paso la API no arranca y le dice qué falta.
-1. **Base de datos:** ejecute `db/01_schema.sql`, `db/02_seed.sql`, `db/03_ml.sql` y `db/05_identidad.sql` en SSMS contra su instancia local (`05_identidad.sql` se puede ejecutar sobre una base existente). En local los correos de activación no se envían: el enlace aparece en el registro de la API. La cadena de conexión por defecto usa `Server=localhost;Trusted_Connection=True`.
+0. **Secretos (una vez):** desde la raíz ejecute `powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1`. Genera claves aleatorias y las guarda en *user-secrets* de .NET (`Jwt:Key`, `Ml:ApiKey`, `Seguridad:TotpClave`, `Huella:Clave`), en `ml-service/.env`, `bff/.env` y `.env`. Si lo había ejecutado en una fase anterior, vuelva a ejecutarlo (conserva las claves existentes y agrega las nuevas). Ninguno de esos archivos se sube a git. Sin este paso la API no arranca y le dice qué falta.
+1. **Base de datos:** ejecute `db/01_schema.sql`, `db/02_seed.sql`, `db/03_ml.sql` y `db/05_identidad.sql` y `db/06_qa_roles.sql` en SSMS contra su instancia local (ambos se pueden ejecutar sobre una base existente). En local los correos de activación no se envían: el enlace aparece en el registro de la API. La cadena de conexión por defecto usa `Server=localhost;Trusted_Connection=True`.
 2. **RabbitMQ (opcional):** `docker run -d -p 5672:5672 -p 15672:15672 rabbitmq:4-management-alpine`. Sin RabbitMQ todo funciona igual; sólo no salen notificaciones hasta que el broker esté disponible.
 3. **API Core:** abra `api-core/ReservaMed.slnx` en Visual Studio 2026 y ejecute `ReservaMed.Api` (http://localhost:5080). Opcionalmente ejecute también `ReservaMed.Worker`.
 4. **BFF:** `cd bff && npm install && npm run build && npm start` (puerto 3000; lee `bff/.env`). Portal y backoffice en desarrollo también pasan por él.
@@ -224,7 +236,7 @@ Para correr las pruebas en local (opcional): `dotnet test api-core/ReservaMed.sl
 | `admin@reservamed.cl` | Admin | Todo + auditoría + bloqueos de agenda |
 
 Las cuentas del personal piden enrolar un autenticador TOTP en su primer ingreso al backoffice.
-`qa@reservamed.cl` es un administrador reservado a las verificaciones automáticas.
+`qa@reservamed.cl`, `qa.recepcion@reservamed.cl`, `qa.recepcion.lc@reservamed.cl` y `qa.medico@reservamed.cl` son cuentas reservadas a las verificaciones automáticas (enrolan su propio TOTP).
 
 **Pruebas rápidas**
 

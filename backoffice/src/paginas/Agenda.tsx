@@ -86,13 +86,17 @@ export default function Agenda() {
       <h1>{esMedico ? 'Mi agenda' : 'Agenda del día'}</h1>
       <div className="barra">
         <label>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></label>
-        {!esMedico && (
+        {/* A3: recepción trabaja solo en su sede (la API también lo exige); solo admin elige. */}
+        {sesion.rol === 'ADMIN' && (
           <label>Sede
             <select value={sedeId} onChange={(e) => setSedeId(e.target.value)}>
               <option value="">Todas</option>
               {sedes.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
           </label>
+        )}
+        {sesion.rol === 'RECEPCION' && (
+          <span className="sutil">Sede {sedes.find((s) => s.id === sesion.sedeId)?.nombre ?? ''}</span>
         )}
         <span className="sutil">
           {resumen.total} citas · {resumen.admitidas} admitidas{!esMedico && ` · recaudado ${clp(resumen.recaudado)}`}

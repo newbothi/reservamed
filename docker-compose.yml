@@ -116,6 +116,8 @@ services:
       # F2: secretos TOTP del personal cifrados con AES-256-GCM (A2); correo de activación (A7).
       Seguridad__TotpClave: ${TOTP_KEY:?Defina TOTP_KEY en .env (scripts/configurar-secretos.ps1)}
       Seguridad__UrlPortal: https://reservamed.localhost
+      # F3 (C3): valida la firma de los lectores de huella (el simulador del BFF firma con la misma clave).
+      Huella__Clave: ${HUELLA_KEY:?Defina HUELLA_KEY en .env (scripts/configurar-secretos.ps1)}
       Correo__Modo: Smtp
       Correo__Host: mailpit
       Correo__Puerto: "1025"
@@ -195,6 +197,9 @@ services:
       # F2 (A1): sella la cookie de sesión y firma los desafíos anti-bots.
       BFF_SESSION_KEY: ${BFF_SESSION_KEY:?Defina BFF_SESSION_KEY en .env (scripts/configurar-secretos.ps1)}
       BFF_ORIGENES: https://reservamed.localhost,https://localhost
+      # F3 (C3): el BFF hace de lector biométrico simulado de cada sede (en producción, el dispositivo).
+      HUELLA_KEY: ${HUELLA_KEY:?Defina HUELLA_KEY en .env (scripts/configurar-secretos.ps1)}
+      HUELLA_LECTORES: "1:LECTOR-PROV-01,2:LECTOR-LC-01"
     networks:
       app: { ipv4_address: 172.30.1.20 }
     <<: [*endurecido, *solo_lectura]

@@ -38,11 +38,22 @@ interface Valorizacion {
 
 type Huella = 'sin-leer' | 'leyendo' | 'ok' | 'fallida';
 
+/** Desafío de un solo uso de la API para que el lector firme ESTA lectura (C3). */
+interface DesafioHuella {
+  nonce: string;
+  citaId: number;
+  rut: string;
+  sedeId: number;
+  expiraUtc: string;
+}
+
 export default function Admision() {
   const { id } = useParams();
   const [cita, setCita] = useState<CitaAdmision | null>(null);
   const [valorizacion, setValorizacion] = useState<Valorizacion | null>(null);
   const [huella, setHuella] = useState<Huella>('sin-leer');
+  // Comprobante firmado por el lector: el navegador solo lo transporta, no puede fabricarlo.
+  const [comprobante, setComprobante] = useState<string | null>(null);
   const [derivador, setDerivador] = useState('');
   const [medio, setMedio] = useState<'POS_DEBITO' | 'POS_CREDITO' | 'EFECTIVO'>('POS_DEBITO');
   const [ultimos, setUltimos] = useState('');
@@ -70,17 +81,40 @@ export default function Admision() {
   const valorizar = () =>
     accion('valorizar', async () => setValorizacion(await api<Valorizacion>(`/api/admision/citas/${id}/valorizar`, { cuerpo: {} })));
 
-  const leerHuella = (exito: boolean) => {
+  /**
+   * C3: 1) la API entrega un desafío para esta cita y este beneficiario; 2) el lector de la sede
+   * (simulado en el BFF) captura la huella y firma la lectura; 3) el bono se emite con ese
+   * comprobante y la API valida la firma. "Simular fallo" lee una huella que no coincide.
+   */
+  const leerHuella = async (exito: boolean) => {
     setHuella('leyendo');
-    setTimeout(() => setHuella(exito ? 'ok' : 'fallida'), 1200);
+    setComprobante(null);
+    setError('');
+    try {
+      const desafio = await api<DesafioHuella>(`/api/admision/citas/${id}/huella/desafio`, { cuerpo: {} });
+      const lectura = await api<{ comprobante: string }>('/lector/leer', {
+        cuerpo: { desafio, resultado: exito ? 'COINCIDE' : 'NO_COINCIDE' },
+      });
+      setComprobante(lectura.comprobante);
+      setHuella(exito ? 'ok' : 'fallida');
+    } catch (e) {
+      setHuella('sin-leer');
+      setError((e as Error).message);
+    }
   };
 
   const emitirBono = () =>
     accion('bono', async () => {
-      await api(`/api/admision/citas/${id}/bono`, {
-        cuerpo: { huellaVerificada: huella === 'ok', derivadorRut: derivador || null },
-      });
-      cargar();
+      try {
+        await api(`/api/admision/citas/${id}/bono`, {
+          cuerpo: { comprobanteHuella: comprobante, derivadorRut: derivador || null },
+        });
+        cargar();
+      } finally {
+        // Cada lectura sirve una sola vez: si algo falla, hay que volver a leer.
+        setComprobante(null);
+        setHuella('sin-leer');
+      }
     });
 
   const anularBono = () =>
@@ -88,6 +122,7 @@ export default function Admision() {
       if (!confirm('¿Anular el bono emitido?')) return;
       await api(`/api/admision/citas/${id}/bono/anular`, { cuerpo: {} });
       setHuella('sin-leer');
+      setComprobante(null);
       cargar();
     });
 
@@ -178,8 +213,8 @@ export default function Admision() {
                       <div className="sutil">
                         {huella === 'sin-leer' && 'Pida al beneficiario que ponga el dedo en el lector.'}
                         {huella === 'leyendo' && 'Leyendo huella…'}
-                        {huella === 'ok' && 'Huella verificada con el Registro Civil.'}
-                        {huella === 'fallida' && 'Huella no reconocida. Repita la lectura.'}
+                        {huella === 'ok' && 'Lectura firmada por el lector de la sede. Emita el bono.'}
+                        {huella === 'fallida' && 'El lector no reconoció la huella. Repita la lectura.'}
                       </div>
                     </div>
                     <button className="sec" onClick={() => leerHuella(true)} disabled={!valorizacion || huella === 'leyendo'}>Leer huella</button>
@@ -189,7 +224,7 @@ export default function Admision() {
                     <label>RUT médico derivador (opcional)
                       <input value={derivador} onChange={(e) => setDerivador(formatearRut(e.target.value))} placeholder="Si viene derivado" />
                     </label>
-                    <button onClick={emitirBono} disabled={!valorizacion || huella === 'sin-leer' || huella === 'leyendo' || !!ocupado}>
+                    <button onClick={emitirBono} disabled={!valorizacion || !comprobante || huella === 'leyendo' || !!ocupado}>
                       {ocupado === 'bono' ? 'Emitiendo…' : 'Emitir bono'}
                     </button>
                   </div>

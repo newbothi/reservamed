@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { LectorController } from './lector/lector.controller';
 import { cargarEnv, leerConfig } from './comun/config';
 cargarEnv();
 import { Controller, Get, Module } from '@nestjs/common';
@@ -29,7 +30,7 @@ class HealthController {
     // Límite de peticiones por IP: protege login y reservas de abuso (bots que acaparan horas).
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
   ],
-  controllers: [HealthController, AuthController, BackofficeController, PowController, CatalogoController, AgendaController, CitasController, PagosController],
+  controllers: [HealthController, AuthController, BackofficeController, LectorController, PowController, CatalogoController, AgendaController, CitasController, PagosController],
   providers: [CoreClient, GestorSesion, ServicioPow, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 class AppModule {}

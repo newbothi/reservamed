@@ -25,5 +25,7 @@ for v in SQL_API_PASS SQL_WORKER_PASS SQL_ML_PASS SQL_ML_SEED_PASS; do
 done
 # F2: identidad y sesiones (idempotente, aplica también sobre bases existentes)
 sa -I -b -i /scripts/05_identidad.sql
+# F3: cuentas de QA por rol (verificaciones automáticas; idempotente)
+sa -I -b -i /scripts/06_qa_roles.sql
 sa -I -b -i /scripts/04_usuarios.sql \
   -v API_PASS="$SQL_API_PASS" WORKER_PASS="$SQL_WORKER_PASS" ML_PASS="$SQL_ML_PASS" ML_SEED_PASS="$SQL_ML_SEED_PASS"

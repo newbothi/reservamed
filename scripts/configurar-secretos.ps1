@@ -3,8 +3,9 @@
   Genera los secretos locales de ReservaMed (hallazgo C1: ningun secreto vive en el repositorio).
 
 .DESCRIPTION
-  - API Core: guarda Jwt:Key, Ml:ApiKey y Seguridad:TotpClave en "dotnet user-secrets" (fuera del proyecto).
-  - BFF: escribe bff/.env con BFF_SESSION_KEY (cookie de sesion sellada, fase 2).
+  - API Core: guarda Jwt:Key, Ml:ApiKey, Seguridad:TotpClave y Huella:Clave en "dotnet user-secrets".
+  - BFF: escribe bff/.env con BFF_SESSION_KEY (cookie de sesion sellada, fase 2) y HUELLA_KEY
+    (lector de huella simulado, fase 3).
   - ml-service: escribe ml-service/.env con la misma ML_API_KEY y la conexion ODBC.
   - Docker: escribe .env en la raiz con contrasenas aleatorias: sa (solo db-init), un usuario SQL por
     servicio, el administrador de RabbitMQ y un usuario por servicio, JWT y ML (hallazgos C1 y A5).
@@ -82,6 +83,9 @@ $rbMl      = Valor-O-Nuevo $docker "RABBIT_ML_PASS" { Nuevo-Secreto 24 }
 # Si TOTP_KEY cambia, los autenticadores ya enrolados dejan de servir (se pide enrolar de nuevo).
 $totpKey   = Valor-O-Nuevo $docker "TOTP_KEY" { Nuevo-Secreto 32 }
 $bffKey    = Valor-O-Nuevo $docker "BFF_SESSION_KEY" { Nuevo-Secreto 32 }
+# F3 (C3): clave maestra de los lectores de huella. La comparten la API (valida) y el simulador
+# del lector en el BFF (firma); el navegador nunca la ve.
+$huellaKey = Valor-O-Nuevo $docker "HUELLA_KEY" { Nuevo-Secreto 32 }
 
 # C2: en Docker, Webpay usa el ambiente de INTEGRACION de Transbank. Esta clave es publica
 # (documentacion de Transbank, comercio 597055555532) y solo sirve con tarjetas de prueba.
@@ -95,12 +99,14 @@ $api = Join-Path $raiz "api-core/src/ReservaMed.Api"
 dotnet user-secrets set "Jwt:Key" $jwtKey --project $api | Out-Null
 dotnet user-secrets set "Ml:ApiKey" $mlKey --project $api | Out-Null
 dotnet user-secrets set "Seguridad:TotpClave" $totpKey --project $api | Out-Null
-Write-Host "API Core: Jwt:Key, Ml:ApiKey y Seguridad:TotpClave guardados en user-secrets." -ForegroundColor Green
+dotnet user-secrets set "Huella:Clave" $huellaKey --project $api | Out-Null
+Write-Host "API Core: Jwt:Key, Ml:ApiKey, Seguridad:TotpClave y Huella:Clave guardados en user-secrets." -ForegroundColor Green
 
 # --- bff/.env (desarrollo local con npm run start:dev) ---
 Escribir-Env (Join-Path $raiz "bff/.env") @(
     "# Generado por scripts/configurar-secretos.ps1 - no subir a Git"
     "BFF_SESSION_KEY=$bffKey"
+    "HUELLA_KEY=$huellaKey"
     "API_CORE_URL=http://localhost:5080"
 )
 Write-Host "BFF: bff/.env escrito." -ForegroundColor Green
@@ -124,6 +130,7 @@ Escribir-Env $envDocker (@(
     "JWT_KEY=$jwtKey"
     "TOTP_KEY=$totpKey"
     "BFF_SESSION_KEY=$bffKey"
+    "HUELLA_KEY=$huellaKey"
     "ML_API_KEY=$mlKey"
     "RABBIT_USER=reservamed"
     "RABBIT_PASS=$rbPass"
