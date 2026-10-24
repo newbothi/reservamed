@@ -34,7 +34,7 @@ describe('Configuración del BFF', () => {
   it('exige BFF_SESSION_KEY de al menos 32 bytes', () => {
     expect(() => leerConfig({})).toThrow(/BFF_SESSION_KEY/);
     expect(() => leerConfig({ BFF_SESSION_KEY: Buffer.alloc(16).toString('base64') })).toThrow();
-    expect(() => leerConfig({ BFF_SESSION_KEY: 'CAMBIAR-esta-clave-por-una-de-verdad-123456789' })).toThrow();
+    expect(() => leerConfig({ BFF_SESSION_KEY: 'CAMBIAR-' + 'x'.repeat(40) })).toThrow();
     const cfg = leerConfig({ BFF_SESSION_KEY: randomBytes(32).toString('base64url') });
     expect(cfg.claveSesion.length).toBe(32);
     expect(cfg.claveSesion.equals(cfg.clavePow)).toBe(false);   // claves derivadas distintas

@@ -171,7 +171,8 @@ public sealed class SesionTests(ApiFactory api)
         var b = await api.PostAsync("/api/auth/login", new { email = "ignacio@demo.cl", password = "x-incorrecta", cliente = "PORTAL" });
 
         Assert.Equal(a.StatusCode, b.StatusCode);
-        Assert.Equal(await a.Content.ReadAsStringAsync(), await b.Content.ReadAsStringAsync());
+        // Mismo cuerpo salvo el traceId, que identifica cada solicitud.
+        Assert.Equal(SinTraza(await a.Content.ReadAsStringAsync()), SinTraza(await b.Content.ReadAsStringAsync()));
     }
 
     /* ---------- A7 / B4 / M2: registro ---------- */
@@ -249,8 +250,11 @@ public sealed class SesionTests(ApiFactory api)
                 profesionalId = cupo.ProfesionalId, sedeId = cupo.SedeId, inicio = cupo.Inicio, modalidadPago = "ONLINE"
             })).StatusCode);
 
-        Assert.Equal(new[] { HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.Conflict }, estados);
+        Assert.Equal(new[] { HttpStatusCode.Created, HttpStatusCode.Created, HttpStatusCode.Conflict }, estados);
     }
+
+    private static string SinTraza(string json) =>
+        System.Text.RegularExpressions.Regex.Replace(json, "\"traceId\":\"[^\"]*\"", "");
 
     private sealed record CupoDto(int ProfesionalId, int SedeId, DateTime Inicio);
 }

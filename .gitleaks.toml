@@ -13,6 +13,7 @@ description = "Valores comprometidos conocidos y claves de prueba"
 paths = [
   '''^api-core/tests/''',
   '''^ml-service/tests/''',
+  '''\.spec\.ts$''',
 ]
 regexTarget = "match"
 regexes = [
