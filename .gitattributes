@@ -3,3 +3,4 @@
 *.ps1 text eol=crlf
 *.sql text eol=crlf
 *.png binary
+# Los .ps1 se mantienen en ASCII: Windows PowerShell 5.1 lee los archivos sin BOM como ANSI.

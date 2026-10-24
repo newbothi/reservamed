@@ -1,13 +1,13 @@
-﻿<#
+<#
 .SYNOPSIS
-  Genera los secretos locales de ReservaMed (hallazgo C1: ningún secreto vive en el repositorio).
+  Genera los secretos locales de ReservaMed (hallazgo C1: ningun secreto vive en el repositorio).
 
 .DESCRIPTION
   - API Core: guarda Jwt:Key y Ml:ApiKey en "dotnet user-secrets" (fuera de la carpeta del proyecto).
-  - ml-service: escribe ml-service/.env con la misma ML_API_KEY y la conexión ODBC.
-  - Docker: escribe .env en la raíz con contraseñas aleatorias: sa (solo db-init), un usuario SQL por
+  - ml-service: escribe ml-service/.env con la misma ML_API_KEY y la conexion ODBC.
+  - Docker: escribe .env en la raiz con contrasenas aleatorias: sa (solo db-init), un usuario SQL por
     servicio, el administrador de RabbitMQ y un usuario por servicio, JWT y ML (hallazgos C1 y A5).
-  Los archivos .env están en .gitignore. Si ya existen, se reutilizan sus valores salvo que use -Forzar.
+  Los archivos .env estan en .gitignore. Si ya existen, se reutilizan sus valores salvo que use -Forzar.
 
 .PARAMETER Forzar
   Regenera todos los secretos aunque ya existan.
@@ -78,9 +78,9 @@ $rbApi     = Valor-O-Nuevo $docker "RABBIT_API_PASS" { Nuevo-Secreto 24 }
 $rbWorker  = Valor-O-Nuevo $docker "RABBIT_WORKER_PASS" { Nuevo-Secreto 24 }
 $rbMl      = Valor-O-Nuevo $docker "RABBIT_ML_PASS" { Nuevo-Secreto 24 }
 
-# C2: en Docker, Webpay usa el ambiente de INTEGRACIÓN de Transbank. Esta clave es pública
-# (documentación de Transbank, comercio 597055555532) y solo sirve con tarjetas de prueba.
-# En producción se reemplaza por la clave real del comercio.
+# C2: en Docker, Webpay usa el ambiente de INTEGRACION de Transbank. Esta clave es publica
+# (documentacion de Transbank, comercio 597055555532) y solo sirve con tarjetas de prueba.
+# En produccion se reemplaza por la clave real del comercio.
 $webpayIntegracion = "579B532A7440BB0C9079DED94D31EA1615BACEB56610332264630D42D0A36B1C"
 $webpayKey = if ($docker.ContainsKey("WEBPAY_API_KEY") -and $docker["WEBPAY_API_KEY"]) { $docker["WEBPAY_API_KEY"] } else { $webpayIntegracion }
 
@@ -117,7 +117,7 @@ Escribir-Env $envDocker @(
     "RABBIT_ML_PASS=$rbMl"
     "WEBPAY_API_KEY=$webpayKey"
 )
-Write-Host "Docker: .env escrito en la raíz del proyecto." -ForegroundColor Green
+Write-Host "Docker: .env escrito en la raiz del proyecto." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Listo. Reinicie la API en Visual Studio y el ml-service para que tomen los nuevos valores."
