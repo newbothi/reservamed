@@ -324,15 +324,30 @@ foreach ($doc in 'docs/ml/ficha-modelo.md', 'docs/ml/revision-modelo.md', 'CHANG
 
 # ---------------------------------------------------------------- Dependencias
 Seccion 'Dependencias sin vulnerabilidades altas (npm audit)'
+# En Windows se llama npm.cmd (evita el envoltorio npm.ps1); la salida se guarda en un archivo.
 $npm = Get-Command npm -ErrorAction SilentlyContinue
+$npmExe = if ($env:OS -eq 'Windows_NT' -and (Get-Command npm.cmd -ErrorAction SilentlyContinue)) { 'npm.cmd' } else { 'npm' }
+$npxExe = if ($npmExe -eq 'npm.cmd') { 'npx.cmd' } else { 'npx' }
+$tmp = Join-Path ([IO.Path]::GetTempPath()) "rm-f5b-$PID"
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+function Npm-En([string]$carpeta, [string]$exe, [string[]]$argumentos, [string]$salidaArchivo) {
+    Push-Location $carpeta
+    try { & $exe @argumentos > $salidaArchivo 2> "$salidaArchivo.err"; return $LASTEXITCODE } finally { Pop-Location }
+}
 foreach ($d in 'portal', 'backoffice', 'bff') {
     if (-not $npm) { Info 'npm no esta instalado: se omite (el CI lo revisa en el job Seguridad).'; break }
-    Push-Location (Join-Path $raiz $d)
-    $json = (& npm audit --omit=dev --json 2>$null) -join "`n"
-    Pop-Location
-    $altas = 0
-    try { $a = $json | ConvertFrom-Json; $altas = [int]$a.metadata.vulnerabilities.high + [int]$a.metadata.vulnerabilities.critical } catch { $altas = -1 }
-    Revisar 'DEP' ($altas -eq 0) "$d sin vulnerabilidades high/critical" "${d}: npm audit $(if ($altas -lt 0) { 'no respondio' } else { "$altas altas o criticas" })"
+    $archivo = Join-Path $tmp "audit-$d.json"
+    Npm-En (Join-Path $raiz $d) $npmExe @('audit', '--omit=dev', '--json') $archivo | Out-Null
+    $texto = if (Test-Path $archivo) { Get-Content $archivo -Raw } else { '' }
+    # Se lee el resumen con una expresion regular: no depende de ConvertFrom-Json de PowerShell 5.1.
+    $altas = -1
+    if ("$texto" -match '"metadata"\s*:\s*\{\s*"vulnerabilities"\s*:\s*\{([^}]*)\}') {
+        $resumen = $Matches[1]
+        $h = if ($resumen -match '"high"\s*:\s*(\d+)') { [int]$Matches[1] } else { 0 }
+        $c = if ($resumen -match '"critical"\s*:\s*(\d+)') { [int]$Matches[1] } else { 0 }
+        $altas = $h + $c
+    }
+    Revisar 'DEP' ($altas -eq 0) "$d sin vulnerabilidades high/critical" "${d}: npm audit $(if ($altas -lt 0) { 'no respondio: ' + ("$texto" + (Get-Content "$archivo.err" -Raw -ErrorAction SilentlyContinue)).Trim().Substring(0, [Math]::Min(300, ("$texto" + (Get-Content "$archivo.err" -Raw -ErrorAction SilentlyContinue)).Trim().Length)) } else { "$altas altas o criticas" })"
 }
 
 # ---------------------------------------------------------------- E2E
@@ -340,23 +355,33 @@ Seccion 'E2E y accesibilidad (Playwright + axe, WCAG 2.1 AA)'
 if ($SinE2E -or -not $npm) {
     Info 'Se omiten las pruebas E2E (-SinE2E o sin Node.js).'
 } else {
-    Push-Location (Join-Path $raiz 'e2e')
-    & npm ci --no-audit --no-fund 2>&1 | Out-Null
-    & npx playwright install chromium 2>&1 | Out-Null
-    $env:BASE_URL = $Base
-    $salidaE2E = (& npx playwright test --reporter=json 2>$null) -join "`n"
-    Pop-Location
-    try {
-        $rep = $salidaE2E | ConvertFrom-Json
-        $esperadas = [int]$rep.stats.expected; $inesperadas = [int]$rep.stats.unexpected; $inestables = [int]$rep.stats.flaky
-        Revisar 'E2E' ($esperadas -gt 0 -and $inesperadas -eq 0) "Playwright: $esperadas pruebas OK ($inestables con reintento)" "Playwright: $inesperadas fallaron de $($esperadas + $inesperadas)"
-        foreach ($s in @($rep.suites)) {
-            foreach ($t in @($s.suites | ForEach-Object { $_.specs } | Where-Object { $_ }) + @($s.specs | Where-Object { $_ })) {
-                if (-not $t.ok) { Info "Fallo: $($t.title) $((@($t.tests)[0].results | Select-Object -Last 1).error.message)" }
+    $e2e = Join-Path $raiz 'e2e'
+    $log = Join-Path $tmp 'e2e.log'
+    $c = Npm-En $e2e $npmExe @('ci', '--no-audit', '--no-fund') $log
+    if ($c -ne 0) { Falla 'E2E' "npm ci en e2e/ fallo ($c): $((Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue) -replace '\s+', ' ')" }
+    else {
+        $c = Npm-En $e2e $npxExe @('playwright', 'install', 'chromium') $log
+        if ($c -ne 0) { Info "playwright install respondio ${c}: $((Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue) -replace '\s+', ' ')" }
+        $env:BASE_URL = $Base
+        $env:PLAYWRIGHT_JSON_OUTPUT_NAME = Join-Path $tmp 'e2e.json'
+        $c = Npm-En $e2e $npxExe @('playwright', 'test', '--reporter=json') $log
+        Remove-Item Env:\PLAYWRIGHT_JSON_OUTPUT_NAME -ErrorAction SilentlyContinue
+        $json = if (Test-Path (Join-Path $tmp 'e2e.json')) { Get-Content (Join-Path $tmp 'e2e.json') -Raw } else { '' }
+        $esp = if ($json -match '"stats"\s*:\s*\{[^}]*"expected"\s*:\s*(\d+)') { [int]$Matches[1] } else { 0 }
+        $ines = if ($json -match '"stats"\s*:\s*\{[^}]*"unexpected"\s*:\s*(\d+)') { [int]$Matches[1] } else { 0 }
+        $flaky = if ($json -match '"stats"\s*:\s*\{[^}]*"flaky"\s*:\s*(\d+)') { [int]$Matches[1] } else { 0 }
+        Revisar 'E2E' ($esp -gt 0 -and $ines -eq 0 -and $c -eq 0) "Playwright: $esp pruebas OK ($flaky con reintento)" "Playwright: $esp OK, $ines fallaron (codigo $c)"
+        if ($esp -eq 0 -or $ines -gt 0) {
+            # Mensajes de error del reporte (pruebas fallidas o errores de configuracion).
+            foreach ($m in [regex]::Matches($json, '"message"\s*:\s*"((?:[^"\\]|\\.){1,300})') | Select-Object -First 6) {
+                Info ("Error: " + ($m.Groups[1].Value -replace '\\u001b\[[0-9;]*m', '' -replace '\\n', ' '))
             }
+            $err = (Get-Content "$log.err" -Raw -ErrorAction SilentlyContinue)
+            if ($err) { Info ("Salida: " + (($err -replace '\s+', ' ').Trim()).Substring(0, [Math]::Min(400, (($err -replace '\s+', ' ').Trim()).Length))) }
         }
-    } catch { Falla 'E2E' "No se pudo leer el resultado de Playwright: $($salidaE2E.Substring(0, [Math]::Min(300, $salidaE2E.Length)))" }
+    }
 }
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------- k6
 Seccion 'Carga con k6 (p95 < 800 ms, < 1% errores, limite por IP activo)'
