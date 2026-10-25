@@ -1,3 +1,5 @@
 # Hallazgos revisados a mano (falsos positivos). Formato: commit:archivo:regla:linea
 # Lista publica de contrasenas debiles que PoliticaContrasenas rechaza (M2): no es un secreto.
 c6258bf94cc69e82e5e9c8a4f160e271f4bc21a9:api-core/src/ReservaMed.Api/Modules/Auth/PoliticaContrasenas.cs:generic-api-key:57
+# verificar-fase4.ps1 (commit inicial de F4): API key FALSA usada para probar que el ml-service la rechaza.
+1a252744bb37d81cb6092c6670698b8b4b3fb4e9:scripts/verificar-fase4.ps1:generic-api-key:423

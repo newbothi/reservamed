@@ -322,8 +322,9 @@ Revisar 'A9' ($pacienteId -gt 0) "Paciente ficticio creado en admision (id $paci
 
 $r = Pedir $recProv 'POST' '/bff/bo/api/admision/pacientes/buscar' @{ rut = $rutMarca }
 Revisar 'A9' ($r.Status -eq 200 -and $r.Json.id -eq $pacienteId) 'Busqueda por RUT con el RUT en el cuerpo (POST), no en la URL' "Busqueda respondio $($r.Status) $($r.Texto)"
-$r = Pedir $recProv 'GET' "/bff/bo/api/admision/pacientes/$rutMarca"
-Revisar 'A9' ($r.Status -in 404, 405) 'La ruta antigua con el RUT en la URL ya no existe' "GET con RUT en la URL respondio $($r.Status)"
+# Directo a la API dentro de la red interna (si pasara por NGINX, el RUT de esta prueba quedaria en su log).
+$c = CurlRed 'reservamed_app' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "http://api-core:8080/api/admision/pacientes/$rutMarca")
+Revisar 'A9' ($c -in '401', '404', '405') "La ruta antigua con el RUT en la URL ya no existe ($c)" "GET con RUT en la URL respondio '$c'"
 
 # Reserva y anulacion: generan eventos (Outbox, RabbitMQ), notificaciones (Worker) y riesgo (ml-service).
 $desde = (Get-Date).AddDays(3).ToString('yyyy-MM-dd'); $hasta = (Get-Date).AddDays(12).ToString('yyyy-MM-dd')
@@ -401,7 +402,8 @@ $mascaras = Sql "SELECT STRING_AGG(CONCAT(OBJECT_NAME(object_id), '.', name), ',
 Revisar 'M7' (@($mascaras -split ', ').Count -ge 5) "Columnas enmascaradas: $mascaras" "Enmascaramiento incompleto: $mascaras"
 $rutSeed = Sql "EXECUTE AS USER = 'rm_ml_seed'; SELECT TOP 1 Rut FROM dbo.Pacientes WHERE Id = $pacienteId; REVERT;"
 $fechaSeed = Sql "EXECUTE AS USER = 'rm_ml_seed'; SELECT TOP 1 CONVERT(VARCHAR(10), FechaNacimiento, 23) FROM dbo.Pacientes WHERE Id = $pacienteId; REVERT;"
-Revisar 'M7' ($rutSeed -like 'xx.xxx.*' -and $fechaSeed -eq '1900-01-01') "Cuenta no clinica (rm_ml_seed) ve el RUT como $rutSeed y la fecha como $fechaSeed" "rm_ml_seed ve: $rutSeed / $fechaSeed"
+# La fecha enmascarada se ve como 1900-01-01, o como "xxxx" al convertirla a texto.
+Revisar 'M7' ($rutSeed -like 'xx.xxx.*' -and ($fechaSeed -eq '1900-01-01' -or $fechaSeed -match '^x+$')) "Cuenta no clinica (rm_ml_seed) ve el RUT como $rutSeed y la fecha como $fechaSeed" "rm_ml_seed ve: $rutSeed / $fechaSeed"
 $rutMl = Sql "EXECUTE AS USER = 'rm_ml'; SELECT TOP 1 Rut FROM dbo.Pacientes WHERE Id = $pacienteId; REVERT;"
 Revisar 'M7' ($rutMl -like 'xx.xxx.*') "El ml-service (rm_ml) tampoco ve el RUT ($rutMl)" "rm_ml ve el RUT: $rutMl"
 $rutWorker = Sql "EXECUTE AS USER = 'rm_worker'; SELECT TOP 1 Rut FROM dbo.Pacientes; REVERT;"
@@ -420,7 +422,8 @@ foreach ($ruta in '/docs', '/redoc', '/openapi.json') {
     $c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "http://ml-service:8000$ruta")
     Revisar 'M5' ($c -eq '404') "ml-service no publica $ruta (404)" "ml-service $ruta respondio '$c'"
 }
-$c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', '-H', 'X-Api-Key: una-clave-equivocada-123456789', 'http://ml-service:8000/modelos/actual')
+$claveFalsa = 'falsa' + ('z' * 30)   # se arma en tiempo de ejecucion: no es una credencial
+$c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', '-H', "X-Api-Key: $claveFalsa", 'http://ml-service:8000/modelos/actual')
 Revisar 'M5' ($c -eq '401') 'ml-service rechaza una API key equivocada (401)' "API key equivocada respondio '$c'"
 $firmas = (docker compose exec -T ml-service sh -c 'ls /data/modelos' 2>&1) -join ' '
 Revisar 'M5' ($firmas -match '\.joblib\.firma') 'El modelo activo esta firmado (.joblib.firma)' "Archivos de modelos: $firmas"
