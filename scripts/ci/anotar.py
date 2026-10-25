@@ -2,6 +2,12 @@
 
   python scripts/ci/anotar.py zap reporte.json      → falla si hay alertas de riesgo Alto
   python scripts/ci/anotar.py trivy reporte.json     → falla si hay vulnerabilidades CRITICAL
+  F5 (job de seguridad bloqueante):
+  python scripts/ci/anotar.py semgrep semgrep.json   → falla con cualquier hallazgo (ERROR o WARNING)
+  python scripts/ci/anotar.py trivyfs trivy-fs.json  → falla con vulnerabilidades, configuraciones o secretos HIGH/CRITICAL
+  python scripts/ci/anotar.py npm audit-*.json       → falla con vulnerabilidades high/critical
+  python scripts/ci/anotar.py pipaudit pip-audit.json
+  python scripts/ci/anotar.py dotnet vulnerables.json (dotnet list package --vulnerable --format json)
 """
 import json
 import sys
@@ -84,7 +90,69 @@ def gitleaks(ruta: Path) -> int:
     return 1 if hallazgos else 0
 
 
+def semgrep(ruta: Path) -> int:
+    datos = json.loads(ruta.read_text()) if ruta.is_file() else {"results": [], "errors": [{"message": "sin reporte"}]}
+    res = [r for r in datos.get("results", []) if r.get("extra", {}).get("severity") in ("ERROR", "WARNING")]
+    for r in res[:40]:
+        print(f"::error file={r['path']},line={r['start']['line']},title=Semgrep {esc(r['check_id'].split('.')[-1])}::"
+              f"{esc(r['extra'].get('message', '')[:300])}")
+    print(f"::notice title=Semgrep::{len(res)} hallazgos, {len(datos.get('errors', []))} errores de análisis")
+    return 1 if res else 0
+
+
+def trivyfs(ruta: Path) -> int:
+    datos = json.loads(ruta.read_text()) if ruta.is_file() else {}
+    malos = []
+    for r in datos.get("Results", []) or []:
+        for v in r.get("Vulnerabilities", []) or []:
+            malos.append(f"{v.get('Severity')} {v.get('VulnerabilityID')} {v.get('PkgName')} {v.get('InstalledVersion')}→{v.get('FixedVersion')} ({r.get('Target')})")
+        for m in r.get("Misconfigurations", []) or []:
+            if m.get("Status") == "FAIL":
+                malos.append(f"{m.get('Severity')} {m.get('ID')} {m.get('Title')} ({r.get('Target')})")
+        for x in r.get("Secrets", []) or []:
+            malos.append(f"{x.get('Severity')} secreto {x.get('RuleID')} ({r.get('Target')}:{x.get('StartLine')})")
+    for m in malos[:40]:
+        print(f"::error title=Trivy fs::{esc(m)}")
+    print(f"::notice title=Trivy fs::{len(malos)} hallazgos HIGH/CRITICAL" if ruta.is_file() else "::error title=Trivy fs::sin reporte")
+    return 1 if malos or not ruta.is_file() else 0
+
+
+def npm(ruta: Path) -> int:
+    datos = json.loads(ruta.read_text() or "{}") if ruta.is_file() else {}
+    malos = [f"{n} ({v.get('severity')}): {', '.join(str(x.get('title', x)) if isinstance(x, dict) else str(x) for x in v.get('via', []))[:200]}"
+             for n, v in (datos.get("vulnerabilities") or {}).items() if v.get("severity") in ("high", "critical")]
+    for m in malos:
+        print(f"::error title=npm audit {esc(ruta.stem)}::{esc(m)}")
+    print(f"::notice title=npm audit {esc(ruta.stem)}::{len(malos)} vulnerabilidades high/critical")
+    return 1 if malos or not ruta.is_file() else 0
+
+
+def pipaudit(ruta: Path) -> int:
+    datos = json.loads(ruta.read_text()) if ruta.is_file() else {"dependencies": []}
+    malos = [f"{d['name']} {d['version']}: {v['id']} → {', '.join(v.get('fix_versions', []))}"
+             for d in datos.get("dependencies", []) for v in d.get("vulns", [])]
+    for m in malos:
+        print(f"::error title=pip-audit::{esc(m)}")
+    print(f"::notice title=pip-audit::{len(malos)} vulnerabilidades")
+    return 1 if malos or not ruta.is_file() else 0
+
+
+def dotnet(ruta: Path) -> int:
+    datos = json.loads(ruta.read_text()) if ruta.is_file() else {}
+    malos = []
+    for p in datos.get("projects", []):
+        for fw in p.get("frameworks", []):
+            for pkg in fw.get("topLevelPackages", []) + fw.get("transitivePackages", []):
+                for v in pkg.get("vulnerabilities", []):
+                    malos.append(f"{Path(p.get('path', '')).name}: {pkg.get('id')} {pkg.get('resolvedVersion')} ({v.get('severity')}) {v.get('advisoryurl')}")
+    for m in sorted(set(malos)):
+        print(f"::error title=NuGet vulnerable::{esc(m)}")
+    print(f"::notice title=NuGet::{len(set(malos))} paquetes vulnerables")
+    return 1 if malos or not ruta.is_file() else 0
+
+
 if __name__ == "__main__":
     tipo, *rutas = sys.argv[1:]
-    fn = {"zap": zap, "trivy": trivy, "trx": trx, "gitleaks": gitleaks}[tipo]
+    fn = {"zap": zap, "trivy": trivy, "trx": trx, "gitleaks": gitleaks, "semgrep": semgrep, "trivyfs": trivyfs,
+          "npm": npm, "pipaudit": pipaudit, "dotnet": dotnet}[tipo]
     sys.exit(max((fn(Path(r)) for r in rutas), default=0))

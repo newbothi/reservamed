@@ -11,7 +11,7 @@ const CambiarClaveSchema = z.object({
 
 const EliminacionSchema = z.object({
   clave: z.string().min(1, 'Ingrese su contraseña').max(128),
-  confirmacion: z.literal('ELIMINAR', { errorMap: () => ({ message: 'Escriba ELIMINAR para confirmar' }) }),
+  confirmacion: z.literal('ELIMINAR', 'Escriba ELIMINAR para confirmar'),
 });
 
 export interface SesionActiva {

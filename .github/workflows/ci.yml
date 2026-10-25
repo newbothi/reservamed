@@ -1,7 +1,7 @@
 # ReservaMed v2 — integración continua (fase 0: base y quality gates).
 # Bloquean el merge: dotnet, node, python, secretos, gitleaks y borde (gate de F1:
 # verificaciones de borde, ZAP sin alertas altas y Trivy sin vulnerabilidades críticas).
-# Informativo (pasa a bloqueante en F5): seguridad (SAST y auditorías de dependencias).
+# Desde F5 también bloquea: seguridad (SAST con Semgrep, Trivy fs y auditorías de dependencias).
 name: CI
 
 on:
@@ -346,23 +346,67 @@ jobs:
           retention-days: 14
 
   seguridad:
-    name: Seguridad (informativo hasta F5)
+    name: Seguridad (SAST y dependencias)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    continue-on-error: true
+    timeout-minutes: 25
+    # F5: bloqueante. Cada herramienta deja su reporte y el gate final falla si alguna encontró algo.
     steps:
       - uses: actions/checkout@v7
-      - name: Trivy (dependencias, IaC y Dockerfiles)
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Trivy (dependencias, IaC, Dockerfiles y secretos)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln,misconfig,secret
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: json
+          output: trivy-fs.json
+          trivyignores: .trivyignore
+          skip-dirs: node_modules,dist
           exit-code: "0"
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
       - name: Semgrep (SAST)
         run: |
           pip install -q semgrep
-          semgrep scan --config p/default --config p/owasp-top-ten --metrics=off --error || true
+          semgrep scan --config p/default --config p/owasp-top-ten --metrics=off --json -o semgrep.json || true
+      - name: npm audit (portal, backoffice, bff)
+        run: |
+          for d in portal backoffice bff; do
+            (cd $d && npm ci --ignore-scripts --no-audit --no-fund >/dev/null && npm audit --omit=dev --json > ../audit-$d.json || true)
+          done
+      - name: pip-audit (ml-service)
+        run: |
+          pip install -q pip-audit
+          pip-audit -r ml-service/requirements.txt -f json -o pip-audit.json || true
+      - name: NuGet vulnerables (api-core)
+        run: |
+          dotnet restore api-core/ReservaMed.slnx >/dev/null
+          dotnet list api-core/ReservaMed.slnx package --vulnerable --include-transitive --format json > nuget-vulnerables.json || true
+      - name: Gate de seguridad
+        run: |
+          r=0
+          python3 scripts/ci/anotar.py trivyfs trivy-fs.json || r=1
+          python3 scripts/ci/anotar.py semgrep semgrep.json || r=1
+          python3 scripts/ci/anotar.py npm audit-portal.json audit-backoffice.json audit-bff.json || r=1
+          python3 scripts/ci/anotar.py pipaudit pip-audit.json || r=1
+          python3 scripts/ci/anotar.py dotnet nuget-vulnerables.json || r=1
+          exit $r
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reportes-seguridad
+          path: |
+            trivy-fs.json
+            semgrep.json
+            audit-*.json
+            pip-audit.json
+            nuget-vulnerables.json
+          retention-days: 14
