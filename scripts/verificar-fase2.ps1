@@ -331,7 +331,7 @@ function Ficha([string]$correo, [string]$pass, $pow) {
     $f = @{ rut = $rut; nombres = 'Paciente'; apellidoPaterno = 'Verificacion'; apellidoMaterno = 'Fase Dos'
             fechaNacimiento = '1991-03-14'; sexo = 'F'; email = $correo; telefono = ''; comuna = 'Providencia'
             password = $pass; financiadorId = 1; planSaludId = $null; tramoFonasa = 'B'; esCarga = $false
-            afiliadoRut = $null; afiliadoNombre = $null }
+            afiliadoRut = $null; afiliadoNombre = $null; aceptaPrivacidad = $true }
     if ($pow) { $f['pow'] = $pow }
     return $f
 }

@@ -77,6 +77,7 @@ public sealed class SesionTests(ApiFactory api)
         var s = await api.LoginPacienteAsync(email, clave);
         var admin = await api.AdminAsync();
         var id = s.Usuario.Id;
+        await api.ReautenticarAsync("admin@reservamed.cl", admin.AccessToken);
 
         var resp = await api.ConToken(admin.AccessToken).PostAsync($"/api/usuarios/{id}/desactivar", null);
         Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);

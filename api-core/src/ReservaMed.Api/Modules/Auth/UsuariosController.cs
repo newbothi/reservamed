@@ -29,6 +29,7 @@ public sealed class UsuariosController(ISqlConnectionFactory db, ServicioSesione
     }
 
     [HttpPost("{id:int}/desactivar")]
+    [RequiereReautenticacion]
     public async Task<IActionResult> Desactivar(int id)
     {
         if (id == User.UsuarioId()) throw new ReglaNegocioException("No puede desactivar su propia cuenta.");
@@ -40,6 +41,7 @@ public sealed class UsuariosController(ISqlConnectionFactory db, ServicioSesione
     }
 
     [HttpPost("{id:int}/activar")]
+    [RequiereReautenticacion]
     public async Task<IActionResult> Activar(int id)
     {
         await using var cn = db.Crear();
@@ -51,6 +53,7 @@ public sealed class UsuariosController(ISqlConnectionFactory db, ServicioSesione
 
     /// <summary>Teléfono perdido: borra el autenticador; en el próximo ingreso se enrola uno nuevo.</summary>
     [HttpPost("{id:int}/restablecer-totp")]
+    [RequiereReautenticacion]
     public async Task<IActionResult> RestablecerTotp(int id)
     {
         await using var cn = db.Crear();

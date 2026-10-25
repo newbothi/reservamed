@@ -99,6 +99,22 @@ public static partial class ClienteAuth
         }
     }
 
+    /// <summary>ASVS V3.7.1: confirma el TOTP en la sesión (habilita acciones sensibles por 5 minutos).</summary>
+    public static async Task ReautenticarAsync(this ApiFactory api, string email, string accessToken)
+    {
+        await Candado.WaitAsync();
+        try
+        {
+            var codigo = await SiguienteCodigoAsync(email);
+            var r = await api.PostAsync("/api/cuenta/reautenticar", new { codigo }, accessToken);
+            Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
+        }
+        finally
+        {
+            Candado.Release();
+        }
+    }
+
     public static string CodigoActual(string email) => Totp.Codigo(Autenticadores[email].Secreto, Totp.Paso(DateTimeOffset.UtcNow));
 
     /// <summary>Registra un paciente nuevo, abre el enlace del correo y devuelve sus credenciales.</summary>
@@ -123,7 +139,7 @@ public static partial class ClienteAuth
         rut, nombres = "Paciente", apellidoPaterno = "Prueba", apellidoMaterno = "Automatizada",
         fechaNacimiento = "1990-05-10", sexo = "F", email, telefono = (string?)null, comuna = "Providencia",
         password = clave, financiadorId, planSaludId = (int?)null, tramoFonasa,
-        esCarga = false, afiliadoRut = (string?)null, afiliadoNombre = (string?)null
+        esCarga = false, afiliadoRut = (string?)null, afiliadoNombre = (string?)null, aceptaPrivacidad = true
     };
 
     public static string TokenVerificacion(ApiFactory api, string email)

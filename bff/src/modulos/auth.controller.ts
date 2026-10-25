@@ -28,6 +28,7 @@ const RegistroSchema = z
     esCarga: z.boolean().default(false),
     afiliadoRut: z.string().nullable().optional(),
     afiliadoNombre: z.string().nullable().optional(),
+    aceptaPrivacidad: z.literal(true, { errorMap: () => ({ message: 'Debe aceptar la política de privacidad' }) }),
     pow: z.unknown(),
   })
   .refine((r) => !r.esCarga || (r.afiliadoRut && rutValido(r.afiliadoRut)), {

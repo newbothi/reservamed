@@ -146,6 +146,30 @@ public sealed class VerificarCorreoRequestValidator : AbstractValidator<Verifica
     public VerificarCorreoRequestValidator() => RuleFor(x => x.Token).Obligatorio(200, "El token");
 }
 
+public sealed class CambiarClaveRequestValidator : AbstractValidator<CambiarClaveRequest>
+{
+    public CambiarClaveRequestValidator()
+    {
+        RuleFor(x => x.Actual).Obligatorio(128, "La contraseña actual");
+        RuleFor(x => x.Nueva).Obligatorio(128, "La contraseña nueva");
+    }
+}
+
+public sealed class ReautenticarRequestValidator : AbstractValidator<ReautenticarRequest>
+{
+    public ReautenticarRequestValidator() =>
+        RuleFor(x => x.Codigo).NotEmpty().Matches(@"^\d{6}$").WithMessage("El código tiene 6 dígitos.");
+}
+
+public sealed class SolicitarEliminacionRequestValidator : AbstractValidator<SolicitarEliminacionRequest>
+{
+    public SolicitarEliminacionRequestValidator()
+    {
+        RuleFor(x => x.Clave).Obligatorio(128, "La contraseña");
+        RuleFor(x => x.Confirmacion).Equal("ELIMINAR").WithMessage("Escriba ELIMINAR para confirmar.");
+    }
+}
+
 public sealed class RegistroPacienteRequestValidator : AbstractValidator<RegistroPacienteRequest>
 {
     public RegistroPacienteRequestValidator()
@@ -166,6 +190,7 @@ public sealed class RegistroPacienteRequestValidator : AbstractValidator<Registr
         RuleFor(x => x.TramoFonasa).Tramo();
         RuleFor(x => x.AfiliadoRut).RutOpcional("RUT del titular");
         RuleFor(x => x.AfiliadoNombre).Texto(150, "Nombre del titular");
+        RuleFor(x => x.AceptaPrivacidad).Equal(true).WithMessage("Debe aceptar la política de privacidad.");
     }
 }
 

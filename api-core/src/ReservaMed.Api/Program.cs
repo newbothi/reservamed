@@ -99,6 +99,8 @@ builder.Services.AddSingleton<ServicioJwt>();
 builder.Services.AddScoped<ServicioSesiones>();
 builder.Services.AddSingleton(new CifradoSecretos(seguridad.TotpClave));
 builder.Services.AddScoped<PoliticaContrasenas>();
+builder.Services.AddScoped<ServicioBloqueos>();
+builder.Services.AddScoped<FiltroReautenticacion>();
 if (seguridad.VerificarFiltraciones)
     builder.Services.AddHttpClient<IVerificadorFiltraciones, VerificadorHibp>(http =>
     {

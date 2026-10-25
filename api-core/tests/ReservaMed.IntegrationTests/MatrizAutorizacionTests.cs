@@ -133,6 +133,14 @@ public sealed class MatrizAutorizacionTests(ApiFactory api)
         Solo("Restablecer TOTP", "POST", "/api/usuarios/999999/restablecer-totp", [Rol.Admin], new { }),
         Solo("Bloqueos de agenda", "POST", "/api/agenda/bloqueos", [Rol.Admin], new { }),
 
+        // Fase 5: la propia cuenta. Cuerpos vacíos o ids inexistentes: si el rol pasa, responde 400/404 sin cambiar nada.
+        Solo("Cuenta: cambiar contraseña", "POST", "/api/cuenta/clave", Autenticados, new { }),
+        Solo("Cuenta: mis sesiones", "GET", "/api/cuenta/sesiones", Autenticados),
+        Solo("Cuenta: cerrar sesión", "POST", "/api/cuenta/sesiones/00000000-0000-0000-0000-000000000001/cerrar", Autenticados, new { }),
+        Solo("Cuenta: reautenticar", "POST", "/api/cuenta/reautenticar", StaffYMedico, new { }),
+        Solo("Cuenta: exportar mis datos", "GET", "/api/cuenta/datos", Pacientes),
+        Solo("Cuenta: solicitar eliminación", "POST", "/api/cuenta/eliminacion", Pacientes, new { }),
+
         // ---------- Públicos ----------
         Solo("Disponibilidad", "GET", "/api/agenda/disponibilidad?especialidadId=1&desde=2030-01-07&hasta=2030-01-08", Todos),
         Solo("Catálogo: sedes", "GET", "/api/catalogo/sedes", Todos),
@@ -164,7 +172,9 @@ public sealed class MatrizAutorizacionTests(ApiFactory api)
         var resp = await api.CreateClient().SendAsync(req);
 
         var cuerpo = await resp.Content.ReadAsStringAsync();
-        var denegado = resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+        // 403 REAUTENTICAR: el rol SÍ pasó; falta confirmar el TOTP (V3.7.1, se prueba en CuentaTests).
+        var denegado = (resp.StatusCode is HttpStatusCode.Unauthorized
+                        || (resp.StatusCode == HttpStatusCode.Forbidden && !cuerpo.Contains("\"REAUTENTICAR\"")))
                        || (resp.StatusCode == HttpStatusCode.NotFound && cuerpo.Contains("\"SIN_ACCESO\""));
         var esperado = c.Permitido(e, rol);
 
@@ -281,11 +291,11 @@ public sealed class MatrizAutorizacionTests(ApiFactory api)
         return e;
     }
 
-    /// <summary>"GET /api/citas/12?x=1" → "GET /api/citas/{n}".</summary>
+    /// <summary>"GET /api/citas/12?x=1" → "GET /api/citas/{n}" (números y GUID).</summary>
     private static string Normalizar(string metodo, string ruta)
     {
         var sinConsulta = ruta.Split('?')[0];
-        var partes = sinConsulta.Split('/').Select(p => int.TryParse(p, out _) || p == "1-9" ? "{n}" : p);
+        var partes = sinConsulta.Split('/').Select(p => int.TryParse(p, out _) || Guid.TryParse(p, out _) || p == "1-9" ? "{n}" : p);
         return $"{metodo} {string.Join('/', partes)}";
     }
 

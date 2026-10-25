@@ -32,3 +32,5 @@ sa -I -b -i /scripts/04_usuarios.sql \
 # F4: auditoría encadenada, enmascaramiento, limpieza de datos personales y TDE (idempotente;
 # va después de 04 porque da permisos a los usuarios por servicio).
 sa -I -b -i /scripts/07_privacidad.sql -v TDE_PASS="$SQL_TDE_PASS"
+# F5: cuenta (reautenticación, consentimiento), solicitudes de datos y alertas de seguridad
+sa -I -b -i /scripts/08_cuenta.sql

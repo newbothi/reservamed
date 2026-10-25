@@ -16,6 +16,7 @@ import { AgendaController } from './modulos/agenda.controller';
 import { AuthController } from './modulos/auth.controller';
 import { CatalogoController } from './modulos/catalogo.controller';
 import { CitasController, PagosController } from './modulos/citas.controller';
+import { CuentaController } from './modulos/cuenta.controller';
 
 @Controller('health')
 class HealthController {
@@ -30,7 +31,7 @@ class HealthController {
     // Límite de peticiones por IP: protege login y reservas de abuso (bots que acaparan horas).
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
   ],
-  controllers: [HealthController, AuthController, BackofficeController, LectorController, PowController, CatalogoController, AgendaController, CitasController, PagosController],
+  controllers: [HealthController, AuthController, BackofficeController, LectorController, PowController, CatalogoController, AgendaController, CitasController, PagosController, CuentaController],
   providers: [CoreClient, GestorSesion, ServicioPow, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 class AppModule {}

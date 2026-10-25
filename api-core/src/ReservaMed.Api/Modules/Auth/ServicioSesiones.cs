@@ -8,6 +8,18 @@ namespace ReservaMed.Api.Modules.Auth;
 
 public sealed record TokensSesion(Guid SesionId, string Refresh, DateTime SesionExpiraUtc);
 
+/// <summary>Sesión vigente, como la ve su dueño (ASVS V3.3.4). Horas en UTC.</summary>
+public sealed class SesionActiva
+{
+    public Guid Id { get; set; }
+    public string Cliente { get; set; } = "";
+    public DateTime CreadaEn { get; set; }
+    public DateTime UltimoUso { get; set; }
+    public DateTime ExpiraEn { get; set; }
+    public string? Ip { get; set; }
+    public bool Actual { get; set; }
+}
+
 /// <summary>
 /// Sesiones revocables con refresh tokens rotativos (hallazgo A1).
 /// - Cada inicio de sesión crea una fila en dbo.Sesiones; el access token lleva su id (sid).
@@ -106,17 +118,58 @@ public sealed class ServicioSesiones(ISqlConnectionFactory db, IMemoryCache cach
         await tx.CommitAsync();
     }
 
-    public async Task<int> RevocarTodasAsync(int usuarioId, string motivo)
+    /// <summary>Revoca todas las sesiones del usuario, salvo <paramref name="excepto"/> (la actual, al cambiar la contraseña).</summary>
+    public async Task<int> RevocarTodasAsync(int usuarioId, string motivo, Guid? excepto = null)
     {
         await using var cn = db.Crear();
         var sids = (await cn.QueryAsync<Guid>(
-            "SELECT Id FROM dbo.Sesiones WHERE UsuarioId = @U AND RevocadaEn IS NULL", new { U = usuarioId })).ToList();
+            "SELECT Id FROM dbo.Sesiones WHERE UsuarioId = @U AND RevocadaEn IS NULL AND (@Excepto IS NULL OR Id <> @Excepto)",
+            new { U = usuarioId, Excepto = excepto })).ToList();
         await cn.ExecuteAsync("""
             UPDATE dbo.Sesiones SET RevocadaEn = SYSUTCDATETIME(), MotivoRevocacion = @Motivo
-            WHERE UsuarioId = @U AND RevocadaEn IS NULL
-            """, new { U = usuarioId, Motivo = motivo });
+            WHERE UsuarioId = @U AND RevocadaEn IS NULL AND (@Excepto IS NULL OR Id <> @Excepto)
+            """, new { U = usuarioId, Motivo = motivo, Excepto = excepto });
         foreach (var sid in sids) cache.Remove(Clave(sid));
         return sids.Count;
+    }
+
+    /// <summary>ASVS V3.3.4: sesiones vigentes del usuario (para verlas y cerrarlas).</summary>
+    public async Task<IReadOnlyList<SesionActiva>> ListarAsync(int usuarioId)
+    {
+        await using var cn = db.Crear();
+        return (await cn.QueryAsync<SesionActiva>("""
+            SELECT Id, Cliente, CreadaEn, UltimoUso, ExpiraEn, Ip
+            FROM dbo.Sesiones
+            WHERE UsuarioId = @U AND RevocadaEn IS NULL AND ExpiraEn > SYSUTCDATETIME()
+            ORDER BY UltimoUso DESC
+            """, new { U = usuarioId })).ToList();
+    }
+
+    /// <summary>Cierra una sesión del propio usuario. false si no existe o es de otro.</summary>
+    public async Task<bool> RevocarPropiaAsync(int usuarioId, Guid sid, string motivo)
+    {
+        await using var cn = db.Crear();
+        var filas = await cn.ExecuteAsync("""
+            UPDATE dbo.Sesiones SET RevocadaEn = SYSUTCDATETIME(), MotivoRevocacion = @Motivo
+            WHERE Id = @Sid AND UsuarioId = @U AND RevocadaEn IS NULL
+            """, new { Sid = sid, U = usuarioId, Motivo = motivo });
+        cache.Remove(Clave(sid));
+        return filas == 1;
+    }
+
+    /// <summary>ASVS V3.7.1: marca que el usuario confirmó su identidad (TOTP) en esta sesión.</summary>
+    public async Task MarcarReautenticadaAsync(Guid sid)
+    {
+        await using var cn = db.Crear();
+        await cn.ExecuteAsync("UPDATE dbo.Sesiones SET ReautenticadoEn = SYSUTCDATETIME() WHERE Id = @Sid", new { Sid = sid });
+    }
+
+    public async Task<bool> ReautenticadaHaceMenosDeAsync(Guid sid, TimeSpan ventana)
+    {
+        await using var cn = db.Crear();
+        return await cn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(1) FROM dbo.Sesiones WHERE Id = @Sid AND ReautenticadoEn > DATEADD(SECOND, -@Seg, SYSUTCDATETIME())",
+            new { Sid = sid, Seg = (int)ventana.TotalSeconds }) == 1;
     }
 
     private async Task RevocarAsync(System.Data.Common.DbConnection cn, System.Data.Common.DbTransaction tx, Guid sid, string motivo)

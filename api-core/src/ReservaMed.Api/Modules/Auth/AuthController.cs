@@ -52,7 +52,8 @@ public sealed record RegistroPacienteRequest(
     DateTime FechaNacimiento, string Sexo, string Email, string? Telefono, string? Comuna,
     string Password,
     int FinanciadorId, int? PlanSaludId, string? TramoFonasa,
-    bool EsCarga, string? AfiliadoRut, string? AfiliadoNombre);
+    bool EsCarga, string? AfiliadoRut, string? AfiliadoNombre,
+    bool AceptaPrivacidad = false);
 
 internal sealed class UsuarioFila
 {
@@ -158,6 +159,7 @@ public sealed class AuthController(
     IAuditoria auditoria,
     IMemoryCache cache,
     IReloj reloj,
+    ServicioBloqueos bloqueos,
     IOptions<OpcionesSeguridad> opciones) : ControllerBase
 {
     private const string MensajeCredenciales = "Correo o contraseña incorrectos.";
@@ -167,7 +169,7 @@ public sealed class AuthController(
     /// M1: si el correo no existe se verifica igual contra un hash BCrypt ficticio, para que el
     /// tiempo de respuesta no revele qué correos tienen cuenta.
     /// </summary>
-    private static readonly Lazy<string> HashFicticio = new(() => BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString(), 11));
+    private static readonly Lazy<string> HashFicticio = new(() => Contrasenas.Hash(Guid.NewGuid().ToString()));
 
     private string? Ip => HttpContext.Connection.RemoteIpAddress?.ToString();
 
@@ -183,7 +185,7 @@ public sealed class AuthController(
         await cn.OpenAsync();
         var u = await cn.QuerySingleOrDefaultAsync<UsuarioFila>("SELECT * FROM dbo.Usuarios WHERE Email = @Email", new { Email = email });
 
-        var claveOk = BCrypt.Net.BCrypt.Verify(req.Password ?? "", u?.PasswordHash ?? HashFicticio.Value);
+        var claveOk = Contrasenas.Verificar(req.Password ?? "", u?.PasswordHash ?? HashFicticio.Value);
 
         if (u is not null && u.BloqueadoHasta > DateTime.UtcNow)
         {
@@ -213,6 +215,11 @@ public sealed class AuthController(
         }
 
         await ReiniciarIntentosAsync(cn, u.Id);
+
+        // ASVS V2.1.3: los hashes del formato antiguo se reemplazan ahora que se conoce la contraseña.
+        if (Contrasenas.EsLegado(u.PasswordHash))
+            await cn.ExecuteAsync("UPDATE dbo.Usuarios SET PasswordHash = @H WHERE Id = @Id",
+                new { H = Contrasenas.Hash(req.Password!), u.Id });
 
         if (!esPersonal) return new ResultadoLogin("OK", await EmitirAsync(u.Publico(), cliente), null, null, null);
 
@@ -339,7 +346,7 @@ public sealed class AuthController(
         }
 
         // El hash se calcula siempre: así crear o no crear la cuenta tarda lo mismo.
-        var hash = BCrypt.Net.BCrypt.HashPassword(r.Password, 11);
+        var hash = Contrasenas.Hash(r.Password);
 
         await using var cn = db.Crear();
         await cn.OpenAsync(ct);
@@ -422,9 +429,9 @@ public sealed class AuthController(
             }
 
             var usuarioId = await cn.ExecuteScalarAsync<int>("""
-                INSERT INTO dbo.Usuarios (Email, PasswordHash, Rol, NombreVisible, PacienteId, EmailVerificado)
+                INSERT INTO dbo.Usuarios (Email, PasswordHash, Rol, NombreVisible, PacienteId, EmailVerificado, PrivacidadAceptadaEn)
                 OUTPUT INSERTED.Id
-                VALUES (@Email, @Hash, 'PACIENTE', @Nombre, @PacienteId, 0);
+                VALUES (@Email, @Hash, 'PACIENTE', @Nombre, @PacienteId, 0, SYSUTCDATETIME());
                 """,
                 new { Email = email, Hash = hash, Nombre = $"{r.Nombres.Trim()} {r.ApellidoPaterno.Trim()}", PacienteId = pacienteId }, tx);
 
@@ -470,25 +477,10 @@ public sealed class AuthController(
         return new SesionEmitida(acceso, expira, t.Refresh, t.SesionExpiraUtc, u);
     }
 
-    /// <summary>A2: bloqueo progresivo (1, 2, 4… minutos hasta 60) tras varios intentos fallidos.</summary>
-    private async Task RegistrarFalloAsync(DbConnection cn, UsuarioFila u)
-    {
-        var intentos = u.IntentosFallidos + 1;
-        if (intentos < _o.MaxIntentos)
-        {
-            await cn.ExecuteAsync("UPDATE dbo.Usuarios SET IntentosFallidos = @N WHERE Id = @Id", new { N = intentos, u.Id });
-            return;
-        }
-        var minutos = _o.MinutosBloqueo(u.BloqueosConsecutivos);
-        await cn.ExecuteAsync("""
-            UPDATE dbo.Usuarios SET IntentosFallidos = 0, BloqueosConsecutivos = BloqueosConsecutivos + 1, BloqueadoHasta = @Hasta
-            WHERE Id = @Id
-            """, new { Hasta = DateTime.UtcNow.AddMinutes(minutos), u.Id });
-        await auditoria.RegistrarAsync("CUENTA_BLOQUEADA", "Usuario", u.Id, $"{minutos} min");
-    }
+    private Task RegistrarFalloAsync(DbConnection cn, UsuarioFila u) =>
+        bloqueos.RegistrarFalloAsync(cn, u.Id, u.IntentosFallidos, u.BloqueosConsecutivos);
 
-    private static Task ReiniciarIntentosAsync(DbConnection cn, int id) => cn.ExecuteAsync(
-        "UPDATE dbo.Usuarios SET IntentosFallidos = 0, BloqueosConsecutivos = 0, BloqueadoHasta = NULL WHERE Id = @Id", new { Id = id });
+    private static Task ReiniciarIntentosAsync(DbConnection cn, int id) => ServicioBloqueos.ReiniciarAsync(cn, id);
 
     private async Task EnviarVerificacionAsync(DbConnection cn, int usuarioId, string email)
     {
@@ -502,9 +494,7 @@ public sealed class AuthController(
             $"{_o.UrlPortal}/verificar-correo?token={token}\n\nSi usted no creó esta cuenta, ignore este correo."));
     }
 
-    private static ReglaNegocioException Bloqueada() => new(
-        "Demasiados intentos fallidos. Por seguridad, espere unos minutos antes de volver a intentar.",
-        StatusCodes.Status429TooManyRequests, "BLOQUEADA");
+    private static ReglaNegocioException Bloqueada() => ServicioBloqueos.Bloqueada();
 
     private static ReglaNegocioException EnlaceInvalido() => new(
         "El enlace no es válido o ya venció. Ingrese con su correo y contraseña para recibir uno nuevo.",
