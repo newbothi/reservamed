@@ -6,10 +6,14 @@
 #   certs/ca.pem             CA local (solo el certificado; la clave privada se borra)
 #   certs/reservamed.crt/key reservamed.localhost, localhost, 127.0.0.1 (NGINX)
 #   certs/rabbitmq.crt/key   rabbitmq (TLS de AMQP en la red interna)
+#   certs/<servicio>.crt/key F5 (ASVS V9.2.2): TLS entre componentes: sqlserver, api-core, bff, ml-service
 set -euo pipefail
+SERVICIOS=(reservamed rabbitmq sqlserver api-core bff ml-service)
 
 dir="$(cd "$(dirname "$0")/.." && pwd)/certs"
-if [[ -f "$dir/reservamed.crt" && "${1:-}" != "--forzar" ]]; then
+faltan=0
+for n in "${SERVICIOS[@]}"; do [[ -f "$dir/$n.crt" ]] || faltan=1; done
+if [[ $faltan == 0 && "${1:-}" != "--forzar" ]]; then
   echo "Ya existen certificados en $dir (use --forzar para regenerarlos)."; exit 0
 fi
 mkdir -p "$dir"; cd "$dir"
@@ -30,8 +34,12 @@ emitir() {
 }
 emitir reservamed "DNS:reservamed.localhost,DNS:localhost,IP:127.0.0.1"
 emitir rabbitmq "DNS:rabbitmq"
+emitir sqlserver "DNS:sqlserver"
+emitir api-core "DNS:api-core"
+emitir bff "DNS:bff"
+emitir ml-service "DNS:ml-service"
 
 rm -f ca.key ca.srl
-# NGINX (uid 101) y RabbitMQ (uid 100) leen las claves montadas: son certificados locales de desarrollo.
+# NGINX (101), RabbitMQ (100), SQL Server (10001), .NET (1654), Node (1000) y ml (10001) leen las claves montadas: son certificados locales de desarrollo.
 chmod 644 ./*.pem ./*.crt ./*.key
 echo "Certificados generados en $dir"

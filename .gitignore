@@ -37,3 +37,5 @@ verificacion-fase*.txt
 
 # F4: respaldos cifrados locales
 respaldos/
+# F5: Docker secrets locales (un archivo por secreto)
+secretos/

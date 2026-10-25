@@ -8,6 +8,8 @@
     ca.pem                  certificado de la CA (la clave privada de la CA queda en la carpeta de mkcert)
     reservamed.crt/.key     reservamed.localhost, localhost, 127.0.0.1, ::1  (NGINX)
     rabbitmq.crt/.key       rabbitmq  (TLS de AMQP dentro de Docker)
+    sqlserver, api-core, bff, ml-service (.crt/.key)  F5: TLS entre los servicios internos (ASVS V9.2.2)
+  Si ya existen los anteriores, solo se crean los que faltan (no hace falta -Forzar).
 
   Requiere mkcert:  winget install FiloSottile.mkcert   (o: choco install mkcert)
 
@@ -40,6 +42,10 @@ function Emitir([string]$nombre, [string[]]$nombres) {
 
 Emitir 'reservamed' @('reservamed.localhost', 'localhost', '127.0.0.1', '::1')
 Emitir 'rabbitmq' @('rabbitmq')
+Emitir 'sqlserver' @('sqlserver')
+Emitir 'api-core' @('api-core')
+Emitir 'bff' @('bff')
+Emitir 'ml-service' @('ml-service')
 
 # Solo el certificado publico de la CA: los contenedores lo usan para validar a RabbitMQ.
 # La clave privada (rootCA-key.pem) nunca sale de la carpeta de mkcert.

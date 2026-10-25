@@ -13,8 +13,10 @@ public interface ISqlConnectionFactory
 
 public sealed class SqlConnectionFactory(IConfiguration config) : ISqlConnectionFactory
 {
-    private readonly string _cadena = config.GetConnectionString("ReservaMed")
-        ?? throw new InvalidOperationException("Falta ConnectionStrings:ReservaMed");
+    // F5: la contraseña llega aparte (Sql:Clave, Docker secret); la cadena fija el certificado del servidor.
+    private readonly string _cadena = ReservaMed.Contracts.SecretosArchivo.CadenaSql(
+        config.GetConnectionString("ReservaMed") ?? throw new InvalidOperationException("Falta ConnectionStrings:ReservaMed"),
+        config["Sql:Clave"]);
 
     public SqlConnection Crear() => new(_cadena);
 }

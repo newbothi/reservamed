@@ -284,7 +284,8 @@ function Nuevo-Rut {
 $curlImg = 'curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6'
 # curl dentro de una red interna de Docker (la API y el ml-service no se publican al PC)
 function CurlRed([string]$red, [string[]]$argumentos) {
-    $todos = @('run', '--rm', '--network', $red, $curlImg) + $argumentos
+    # F5: los servicios internos atienden por HTTPS; se valida su certificado con la CA local.
+    $todos = @('run', '--rm', '--network', $red, '-v', "$(Join-Path $raiz 'certs\ca.pem'):/ca.pem:ro", $curlImg, '--cacert', '/ca.pem') + $argumentos
     return ((& docker @todos 2>&1) -join "`n")
 }
 
@@ -323,7 +324,7 @@ Revisar 'A9' ($pacienteId -gt 0) "Paciente ficticio creado en admision (id $paci
 $r = Pedir $recProv 'POST' '/bff/bo/api/admision/pacientes/buscar' @{ rut = $rutMarca }
 Revisar 'A9' ($r.Status -eq 200 -and $r.Json.id -eq $pacienteId) 'Busqueda por RUT con el RUT en el cuerpo (POST), no en la URL' "Busqueda respondio $($r.Status) $($r.Texto)"
 # Directo a la API dentro de la red interna (si pasara por NGINX, el RUT de esta prueba quedaria en su log).
-$c = CurlRed 'reservamed_app' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "http://api-core:8080/api/admision/pacientes/$rutMarca")
+$c = CurlRed 'reservamed_app' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "https://api-core:8443/api/admision/pacientes/$rutMarca")
 Revisar 'A9' ($c -in '401', '404', '405') "La ruta antigua con el RUT en la URL ya no existe ($c)" "GET con RUT en la URL respondio '$c'"
 
 # Reserva y anulacion: generan eventos (Outbox, RabbitMQ), notificaciones (Worker) y riesgo (ml-service).
@@ -419,19 +420,19 @@ Get-ChildItem (Join-Path $raiz 'respaldos') -Filter 'ReservaMed-*.bak' -ErrorAct
 # ---------------------------------------------------------------- M5 y B2
 Seccion 'M5 / B2 - Sin documentacion ni detalles internos fuera de desarrollo'
 foreach ($ruta in '/docs', '/redoc', '/openapi.json') {
-    $c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "http://ml-service:8000$ruta")
+    $c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "https://ml-service:8443$ruta")
     Revisar 'M5' ($c -eq '404') "ml-service no publica $ruta (404)" "ml-service $ruta respondio '$c'"
 }
 $claveFalsa = 'falsa' + ('z' * 30)   # se arma en tiempo de ejecucion: no es una credencial
-$c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', '-H', "X-Api-Key: $claveFalsa", 'http://ml-service:8000/modelos/actual')
+$c = CurlRed 'reservamed_datos' @('-s', '-o', '/dev/null', '-w', '%{http_code}', '-H', "X-Api-Key: $claveFalsa", 'https://ml-service:8443/modelos/actual')
 Revisar 'M5' ($c -eq '401') 'ml-service rechaza una API key equivocada (401)' "API key equivocada respondio '$c'"
 $firmas = (docker compose exec -T ml-service sh -c 'ls /data/modelos' 2>&1) -join ' '
 Revisar 'M5' ($firmas -match '\.joblib\.firma') 'El modelo activo esta firmado (.joblib.firma)' "Archivos de modelos: $firmas"
 foreach ($ruta in '/openapi/v1.json', '/swagger', '/swagger/index.html') {
-    $c = CurlRed 'reservamed_app' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "http://api-core:8080$ruta")
+    $c = CurlRed 'reservamed_app' @('-s', '-o', '/dev/null', '-w', '%{http_code}', "https://api-core:8443$ruta")
     Revisar 'B2' ($c -eq '404') "La API en produccion no publica $ruta (404)" "API $ruta respondio '$c'"
 }
-$cuerpo = CurlRed 'reservamed_app' @('-s', '-X', 'POST', '-H', 'Content-Type: application/json', '--data', '{ esto no es json', 'http://api-core:8080/api/auth/login')
+$cuerpo = CurlRed 'reservamed_app' @('-s', '-X', 'POST', '-H', 'Content-Type: application/json', '--data', '{ esto no es json', 'https://api-core:8443/api/auth/login')
 Revisar 'B2' ($cuerpo -match '"VALIDACION"' -and $cuerpo -notmatch 'Exception|StackTrace|at ReservaMed|\.cs:line') 'Un error de la API no expone excepciones ni pila' "Respuesta de error: $cuerpo"
 $r = Pedir $null 'GET' '/bff/agenda/disponibilidad?especialidadId=abc&desde=x&hasta=y'
 Revisar 'B2' ($r.Status -ge 400 -and $r.Texto -notmatch 'Error:|\s+at\s+\S+\s+\(|node_modules') "Un error del BFF no expone la pila ($($r.Status))" "Respuesta del BFF: $($r.Texto)"
@@ -441,8 +442,8 @@ Seccion 'Gate - Checklist OWASP ASVS nivel 2'
 $asvs = Join-Path $raiz 'docs/asvs-nivel-2.md'
 if (Test-Path $asvs) {
     $filas = @(Get-Content $asvs -Encoding UTF8 | Where-Object { $_ -match '^\|\s*V\d+\.\d+' })
-    # Completa = cada requisito evaluado: Cumple, No aplica o Brecha asignada a la fase 5, con evidencia.
-    $sinEvaluar = @($filas | Where-Object { $_ -notmatch '\|\s*(Cumple|No aplica|Brecha \(F5\))\s*\|\s*\S' })
+    # Completa = cada requisito evaluado: Cumple, No aplica o Brecha asignada a la fase 5 (o, desde F5, Riesgo aceptado), con evidencia.
+    $sinEvaluar = @($filas | Where-Object { $_ -notmatch '\|\s*(Cumple|No aplica|Riesgo aceptado|Brecha \(F5\))\s*\|\s*\S' })
     $cumple = @($filas | Where-Object { $_ -match '\|\s*Cumple\s*\|' }).Count
     $noAplica = @($filas | Where-Object { $_ -match '\|\s*No aplica\s*\|' }).Count
     $brechas = @($filas | Where-Object { $_ -match '\|\s*Brecha \(F5\)\s*\|' })

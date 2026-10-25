@@ -2,6 +2,11 @@
 # Espera a SQL Server, crea la base una sola vez y (en cada arranque) configura los
 # usuarios por servicio (A5). Es el único proceso que usa sa.
 set -euo pipefail
+# F5 (V6.4.1): las contraseñas llegan como Docker secrets (/run/secrets/<VARIABLE>), no en el entorno.
+for f in /run/secrets/*; do
+  [ -f "$f" ] || continue
+  n=$(basename "$f"); [[ "$n" =~ ^[A-Z_][A-Z0-9_]*$ ]] && export "$n=$(cat "$f")"
+done
 SQLCMD=/opt/mssql-tools18/bin/sqlcmd
 sa() { $SQLCMD -S sqlserver -U sa -P "$SA_PASSWORD" -C "$@"; }
 

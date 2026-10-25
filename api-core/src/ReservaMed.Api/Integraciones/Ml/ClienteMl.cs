@@ -8,6 +8,8 @@ public sealed class OpcionesMl
 {
     public string Url { get; set; } = "http://localhost:8000";
     public string ApiKey { get; set; } = "";
+    /// <summary>F5: CA con la que se valida el HTTPS del ml-service (certs/ca.pem en Docker).</summary>
+    public string? CaCert { get; set; }
     /// <summary>Tiempo máximo para predicciones y consultas. El entrenamiento tiene su propio límite.</summary>
     public int TimeoutSegundos { get; set; } = 3;
 }

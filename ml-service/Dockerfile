@@ -19,5 +19,5 @@ RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin ml \
 USER 10001
 
 ENV TZ=America/Santiago PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 ML_MODELOS=/data/modelos
-EXPOSE 8000
+EXPOSE 8000 8443
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

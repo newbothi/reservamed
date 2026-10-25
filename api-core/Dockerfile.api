@@ -11,9 +11,10 @@ RUN dotnet publish src/ReservaMed.Api/ReservaMed.Api.csproj -c Release -o /app -
 # "-extra" incluye ICU y zonas horarias (cultura es-CL y hora de America/Santiago).
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra@sha256:9e3919aff68057f3e45125c5255a71d3b5f40364e45ede883348688851b9f0df
 WORKDIR /app
+# F5: en Docker atiende solo HTTPS (Kestrel__Endpoints__Https en docker-compose.yml).
 ENV ASPNETCORE_URLS=http://+:8080 \
     TZ=America/Santiago
 COPY --from=build /app .
 USER $APP_UID
-EXPOSE 8080
+EXPOSE 8443
 ENTRYPOINT ["dotnet", "ReservaMed.Api.dll"]

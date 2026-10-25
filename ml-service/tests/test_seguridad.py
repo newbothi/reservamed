@@ -119,3 +119,21 @@ def test_no_carga_un_modelo_sin_firma(tmp_path, monkeypatch):
     monkeypatch.setattr(s, "metadata_activo", lambda: {"version": "v-falsa"})
     with pytest.raises(modulo.ModeloNoDisponible):
         s._modelo()
+
+
+# ---------------------------------------------------------------- F5: secretos como archivos
+def test_secretos_desde_archivos(tmp_path, monkeypatch):
+    from app.config import cargar_secretos_archivo
+    (tmp_path / "ML_API_KEY").write_text("desde-archivo\n", encoding="utf-8")
+    (tmp_path / "no-es-variable").write_text("x", encoding="utf-8")
+    monkeypatch.setenv("ML_API_KEY", "desde-entorno")
+    assert cargar_secretos_archivo(tmp_path) == ["ML_API_KEY"]
+    import os
+    assert os.environ["ML_API_KEY"] == "desde-archivo"
+
+
+def test_claves_se_agregan_a_las_cadenas():
+    from app.config import con_clave_amqp, con_clave_odbc
+    assert con_clave_odbc("DRIVER={X};SERVER=s;UID=u;", "a}b") == "DRIVER={X};SERVER=s;UID=u;PWD={a}}b};"
+    assert con_clave_odbc("SERVER=s;PWD=x", "otra") == "SERVER=s;PWD=x"
+    assert con_clave_amqp("amqps://rm_ml@rabbitmq:5671/reservamed", "c/l@ve") == "amqps://rm_ml:c%2Fl%40ve@rabbitmq:5671/reservamed"

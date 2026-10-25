@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -11,6 +11,32 @@ export function cargarEnv(ruta = join(__dirname, '..', '..', '.env')): void {
     const m = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/.exec(linea);
     if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
   }
+}
+
+/**
+ * F5 (ASVS V6.4.1): en Docker los secretos son archivos en /run/secrets (Docker secrets) con el
+ * nombre de la variable (BFF_SESSION_KEY, HUELLA_KEY). Tienen prioridad sobre el entorno.
+ */
+export function cargarSecretosArchivo(carpeta = '/run/secrets', env: NodeJS.ProcessEnv = process.env): string[] {
+  if (!existsSync(carpeta)) return [];
+  const cargados: string[] = [];
+  for (const nombre of readdirSync(carpeta)) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(nombre)) continue;
+    env[nombre] = readFileSync(join(carpeta, nombre), 'utf8').trim();
+    cargados.push(nombre);
+  }
+  return cargados;
+}
+
+/** F5 (V9.2.2): certificado y clave del HTTPS interno (NGINX → BFF). Sin ellos, HTTP (desarrollo). */
+export function leerTls(env: NodeJS.ProcessEnv = process.env): { cert: Buffer; key: Buffer } | undefined {
+  const cert = env.BFF_TLS_CERT;
+  const key = env.BFF_TLS_KEY;
+  if (!cert || !key) {
+    if (env.NODE_ENV === 'production') throw new Error('Defina BFF_TLS_CERT y BFF_TLS_KEY: en producción el BFF solo atiende por HTTPS.');
+    return undefined;
+  }
+  return { cert: readFileSync(cert), key: readFileSync(key) };
 }
 
 export interface ConfigBff {

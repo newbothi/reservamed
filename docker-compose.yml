@@ -7,6 +7,15 @@
 #   2. scripts/configurar-secretos.ps1    (claves aleatorias en .env)
 # Ningún secreto tiene valor por defecto: si falta uno, compose se detiene con un mensaje.
 #
+# F5 (ASVS V6.4.1 y V9.2.2):
+#   - Los secretos de la aplicación son Docker secrets (archivos en /run/secrets, carpeta secretos/
+#     generada por configurar-secretos.ps1): no aparecen en "docker inspect" ni en el entorno del
+#     proceso. SQL Server y RabbitMQ solo aceptan la clave inicial por variable (limitación de sus
+#     imágenes oficiales): esa clave es la de administración y ningún servicio de la app la usa.
+#   - Todo el tráfico interno va cifrado y con el certificado verificado contra la CA local:
+#     NGINX→BFF→API (HTTPS), API→ml-service (HTTPS), API/Worker/ml→SQL Server (TLS, certificado
+#     fijado) y AMQPS/HTTPS hacia RabbitMQ.
+#
 # Redes (hallazgos A4, A5):
 #   app    — NGINX, BFF y API Core. NGINX y el BFF tienen IP fija: son los únicos proxies en
 #            los que confía la API para X-Forwarded-For. Solo NGINX publica puertos (80 y 443).
@@ -35,7 +44,11 @@ services:
       MSSQL_PID: Developer
       TZ: America/Santiago
     networks: [datos]
-    volumes: [sqldata:/var/opt/mssql]
+    volumes:
+      - sqldata:/var/opt/mssql
+      - ./infra/sqlserver/mssql.conf:/var/opt/mssql/mssql.conf:ro
+      - ./certs/sqlserver.crt:/etc/ssl/rm/sqlserver.crt:ro
+      - ./certs/sqlserver.key:/etc/ssl/rm/sqlserver.key:ro
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     healthcheck:
@@ -49,14 +62,8 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     depends_on:
       sqlserver: { condition: service_healthy }
-    environment:
-      SA_PASSWORD: ${SA_PASSWORD:?Defina SA_PASSWORD en .env}
-      SQL_API_PASS: ${SQL_API_PASS:?Defina SQL_API_PASS en .env}
-      SQL_WORKER_PASS: ${SQL_WORKER_PASS:?Defina SQL_WORKER_PASS en .env}
-      SQL_ML_PASS: ${SQL_ML_PASS:?Defina SQL_ML_PASS en .env}
-      SQL_ML_SEED_PASS: ${SQL_ML_SEED_PASS:?Defina SQL_ML_SEED_PASS en .env}
-      # F4 (M7): clave de la llave maestra de SQL Server (TDE y certificados de respaldo).
-      SQL_TDE_PASS: ${SQL_TDE_PASS:?Defina SQL_TDE_PASS en .env (scripts/configurar-secretos.ps1)}
+    # F4 (M7): SQL_TDE_PASS es la clave de la llave maestra de SQL Server (TDE y respaldos).
+    secrets: [SA_PASSWORD, SQL_API_PASS, SQL_WORKER_PASS, SQL_ML_PASS, SQL_ML_SEED_PASS, SQL_TDE_PASS]
     networks: [datos]
     volumes: ["./db:/scripts:ro"]
     entrypoint: ["/bin/bash", "/scripts/init.sh"]
@@ -90,12 +97,11 @@ services:
       rabbitmq: { condition: service_healthy }
     environment:
       RABBIT_USER: ${RABBIT_USER}
-      RABBIT_PASS: ${RABBIT_PASS}
-      RABBIT_API_PASS: ${RABBIT_API_PASS:?Defina RABBIT_API_PASS en .env}
-      RABBIT_WORKER_PASS: ${RABBIT_WORKER_PASS:?Defina RABBIT_WORKER_PASS en .env}
-      RABBIT_ML_PASS: ${RABBIT_ML_PASS:?Defina RABBIT_ML_PASS en .env}
+    secrets: [RABBIT_PASS, RABBIT_API_PASS, RABBIT_WORKER_PASS, RABBIT_ML_PASS]
     networks: [datos]
-    volumes: ["./infra/rabbitmq/init.sh:/init.sh:ro"]
+    volumes:
+      - ./infra/rabbitmq/init.sh:/init.sh:ro
+      - ./certs/ca.pem:/certs/ca.pem:ro
     entrypoint: ["/bin/sh", "/init.sh"]
     <<: *endurecido
     restart: "no"
@@ -107,36 +113,47 @@ services:
       rabbit-init: { condition: service_completed_successfully }
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__ReservaMed: "Server=sqlserver;Database=ReservaMed;User Id=rm_api;Password=${SQL_API_PASS};TrustServerCertificate=True"
+      # F5: HTTPS interno (NGINX y el BFF validan este certificado contra la CA local).
+      Kestrel__Endpoints__Https__Url: https://+:8443
+      Kestrel__Endpoints__Https__Certificate__Path: /certs/api-core.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /certs/api-core.key
+      ConnectionStrings__ReservaMed: "Server=sqlserver;Database=ReservaMed;User Id=rm_api;Encrypt=Mandatory;TrustServerCertificate=False;ServerCertificate=/certs/sqlserver.crt"
       RabbitMq__Host: rabbitmq
       RabbitMq__Usuario: rm_api
-      RabbitMq__Clave: ${RABBIT_API_PASS}
       RabbitMq__VirtualHost: reservamed
       RabbitMq__Tls: "true"
       RabbitMq__CaCert: /certs/ca.pem
-      Jwt__Key: ${JWT_KEY:?Defina JWT_KEY en .env}
-      # F2: secretos TOTP del personal cifrados con AES-256-GCM (A2); correo de activación (A7).
-      Seguridad__TotpClave: ${TOTP_KEY:?Defina TOTP_KEY en .env (scripts/configurar-secretos.ps1)}
       Seguridad__UrlPortal: https://reservamed.localhost
-      # F3 (C3): valida la firma de los lectores de huella (el simulador del BFF firma con la misma clave).
-      Huella__Clave: ${HUELLA_KEY:?Defina HUELLA_KEY en .env (scripts/configurar-secretos.ps1)}
       Correo__Modo: Smtp
       Correo__Host: mailpit
       Correo__Puerto: "1025"
       # C2: Webpay real en ambiente de integración de Transbank (tarjetas de prueba).
       Webpay__Modo: Integracion
       Webpay__ReturnUrl: https://reservamed.localhost/pago/retorno
-      Webpay__ApiKey: ${WEBPAY_API_KEY:?Defina WEBPAY_API_KEY en .env}
       # A4: solo NGINX y el BFF pueden informar la IP del cliente.
       Proxy__IpsConfiables__0: 172.30.1.10
       Proxy__IpsConfiables__1: 172.30.1.20
-      Ml__Url: http://ml-service:8000
-      Ml__ApiKey: ${ML_API_KEY:?Defina ML_API_KEY en .env}
+      Ml__Url: https://ml-service:8443
+      Ml__CaCert: /certs/ca.pem
+    # Secretos como archivos con el nombre de la clave de configuración (Jwt__Key → Jwt:Key).
+    # F2: TotpClave cifra los secretos TOTP del personal (A2); F3 (C3): Huella valida los lectores.
+    secrets:
+      - { source: JWT_KEY, target: Jwt__Key }
+      - { source: TOTP_KEY, target: Seguridad__TotpClave }
+      - { source: HUELLA_KEY, target: Huella__Clave }
+      - { source: WEBPAY_API_KEY, target: Webpay__ApiKey }
+      - { source: ML_API_KEY, target: Ml__ApiKey }
+      - { source: RABBIT_API_PASS, target: RabbitMq__Clave }
+      - { source: SQL_API_PASS, target: Sql__Clave }
     networks:
       app: { ipv4_address: 172.30.1.30 }
       datos: {}
       correo: {}
-    volumes: ["./certs/ca.pem:/certs/ca.pem:ro"]
+    volumes:
+      - ./certs/ca.pem:/certs/ca.pem:ro
+      - ./certs/sqlserver.crt:/certs/sqlserver.crt:ro
+      - ./certs/api-core.crt:/certs/api-core.crt:ro
+      - ./certs/api-core.key:/certs/api-core.key:ro
     <<: [*endurecido, *solo_lectura]
 
   worker:
@@ -146,15 +163,19 @@ services:
       rabbit-init: { condition: service_completed_successfully }
     environment:
       DOTNET_ENVIRONMENT: Production
-      ConnectionStrings__ReservaMed: "Server=sqlserver;Database=ReservaMed;User Id=rm_worker;Password=${SQL_WORKER_PASS};TrustServerCertificate=True"
+      ConnectionStrings__ReservaMed: "Server=sqlserver;Database=ReservaMed;User Id=rm_worker;Encrypt=Mandatory;TrustServerCertificate=False;ServerCertificate=/certs/sqlserver.crt"
       RabbitMq__Host: rabbitmq
       RabbitMq__Usuario: rm_worker
-      RabbitMq__Clave: ${RABBIT_WORKER_PASS}
       RabbitMq__VirtualHost: reservamed
       RabbitMq__Tls: "true"
       RabbitMq__CaCert: /certs/ca.pem
+    secrets:
+      - { source: RABBIT_WORKER_PASS, target: RabbitMq__Clave }
+      - { source: SQL_WORKER_PASS, target: Sql__Clave }
     networks: [datos]
-    volumes: ["./certs/ca.pem:/certs/ca.pem:ro"]
+    volumes:
+      - ./certs/ca.pem:/certs/ca.pem:ro
+      - ./certs/sqlserver.crt:/certs/sqlserver.crt:ro
     <<: [*endurecido, *solo_lectura]
 
   # Primera vez: historial sintético y primer modelo. Usuario rm_ml_seed (inserta pacientes y citas sintéticas).
@@ -164,11 +185,16 @@ services:
     depends_on:
       db-init: { condition: service_completed_successfully }
     environment:
-      ML_DB: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;UID=rm_ml_seed;PWD=${SQL_ML_SEED_PASS};TrustServerCertificate=yes"
-      ML_API_KEY: ${ML_API_KEY}
+      ML_DB: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;Encrypt=yes;TrustServerCertificate=no;UID=rm_ml_seed"
+      SSL_CERT_FILE: /certs/ca.pem   # F5: el driver ODBC valida el TLS de SQL Server con la CA local
       ML_CONSUMIR_EVENTOS: "false"
+    secrets:
+      - ML_API_KEY
+      - { source: SQL_ML_SEED_PASS, target: ML_DB_PASS }
     networks: [datos]
-    volumes: [modelos:/data/modelos]
+    volumes:
+      - modelos:/data/modelos
+      - ./certs/ca.pem:/certs/ca.pem:ro
     <<: [*endurecido, *solo_lectura]
     restart: "no"
 
@@ -179,31 +205,46 @@ services:
       ml-bootstrap: { condition: service_completed_successfully }
       rabbit-init: { condition: service_completed_successfully }
     environment:
-      ML_DB: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;UID=rm_ml;PWD=${SQL_ML_PASS};TrustServerCertificate=yes"
-      ML_RABBIT_URL: amqps://rm_ml:${RABBIT_ML_PASS}@rabbitmq:5671/reservamed
+      ML_DB: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=sqlserver;DATABASE=ReservaMed;Encrypt=yes;TrustServerCertificate=no;UID=rm_ml"
+      SSL_CERT_FILE: /certs/ca.pem   # la red "datos" no sale a Internet: la CA local basta
+      ML_RABBIT_URL: amqps://rm_ml@rabbitmq:5671/reservamed
       ML_RABBIT_CA: /certs/ca.pem
-      ML_API_KEY: ${ML_API_KEY:?Defina ML_API_KEY en .env}
+    secrets:
+      - ML_API_KEY
+      - { source: SQL_ML_PASS, target: ML_DB_PASS }
+      - { source: RABBIT_ML_PASS, target: ML_RABBIT_PASS }
+    # F5: HTTPS interno; la API valida el certificado contra la CA local.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8443",
+              "--ssl-certfile", "/certs/ml-service.crt", "--ssl-keyfile", "/certs/ml-service.key"]
     networks: [datos]
     volumes:
       - modelos:/data/modelos
       - ./certs/ca.pem:/certs/ca.pem:ro
+      - ./certs/ml-service.crt:/certs/ml-service.crt:ro
+      - ./certs/ml-service.key:/certs/ml-service.key:ro
     <<: [*endurecido, *solo_lectura]
 
   bff:
     build: ./bff
     depends_on: [api-core]
     environment:
-      API_CORE_URL: http://api-core:8080
-      PORT: "3000"
+      API_CORE_URL: https://api-core:8443
+      NODE_EXTRA_CA_CERTS: /certs/ca.pem   # valida el HTTPS de la API con la CA local
+      PORT: "3443"
+      BFF_TLS_CERT: /certs/bff.crt
+      BFF_TLS_KEY: /certs/bff.key
       TRUSTED_PROXIES: 172.30.1.10   # A4: solo NGINX
-      # F2 (A1): sella la cookie de sesión y firma los desafíos anti-bots.
-      BFF_SESSION_KEY: ${BFF_SESSION_KEY:?Defina BFF_SESSION_KEY en .env (scripts/configurar-secretos.ps1)}
       BFF_ORIGENES: https://reservamed.localhost,https://localhost
       # F3 (C3): el BFF hace de lector biométrico simulado de cada sede (en producción, el dispositivo).
-      HUELLA_KEY: ${HUELLA_KEY:?Defina HUELLA_KEY en .env (scripts/configurar-secretos.ps1)}
       HUELLA_LECTORES: "1:LECTOR-PROV-01,2:LECTOR-LC-01"
+    # F2 (A1): BFF_SESSION_KEY sella la cookie de sesión; HUELLA_KEY firma como lector simulado (C3).
+    secrets: [BFF_SESSION_KEY, HUELLA_KEY]
     networks:
       app: { ipv4_address: 172.30.1.20 }
+    volumes:
+      - ./certs/ca.pem:/certs/ca.pem:ro
+      - ./certs/bff.crt:/certs/bff.crt:ro
+      - ./certs/bff.key:/certs/bff.key:ro
     <<: [*endurecido, *solo_lectura]
 
   # Buzón SMTP de pruebas: atrapa todos los correos; no envía nada a Internet.
@@ -228,6 +269,7 @@ services:
     volumes:
       - ./certs/reservamed.crt:/etc/nginx/certs/reservamed.crt:ro
       - ./certs/reservamed.key:/etc/nginx/certs/reservamed.key:ro
+      - ./certs/ca.pem:/etc/nginx/certs/ca.pem:ro
     <<: [*endurecido, *solo_lectura]
 
 networks:
@@ -241,3 +283,22 @@ networks:
 volumes:
   sqldata:
   modelos:
+
+# F5 (V6.4.1): un archivo por secreto en secretos/ (scripts/configurar-secretos.ps1; en .gitignore).
+secrets:
+  SA_PASSWORD: { file: ./secretos/SA_PASSWORD }
+  SQL_API_PASS: { file: ./secretos/SQL_API_PASS }
+  SQL_WORKER_PASS: { file: ./secretos/SQL_WORKER_PASS }
+  SQL_ML_PASS: { file: ./secretos/SQL_ML_PASS }
+  SQL_ML_SEED_PASS: { file: ./secretos/SQL_ML_SEED_PASS }
+  SQL_TDE_PASS: { file: ./secretos/SQL_TDE_PASS }
+  RABBIT_PASS: { file: ./secretos/RABBIT_PASS }
+  RABBIT_API_PASS: { file: ./secretos/RABBIT_API_PASS }
+  RABBIT_WORKER_PASS: { file: ./secretos/RABBIT_WORKER_PASS }
+  RABBIT_ML_PASS: { file: ./secretos/RABBIT_ML_PASS }
+  JWT_KEY: { file: ./secretos/JWT_KEY }
+  TOTP_KEY: { file: ./secretos/TOTP_KEY }
+  HUELLA_KEY: { file: ./secretos/HUELLA_KEY }
+  BFF_SESSION_KEY: { file: ./secretos/BFF_SESSION_KEY }
+  ML_API_KEY: { file: ./secretos/ML_API_KEY }
+  WEBPAY_API_KEY: { file: ./secretos/WEBPAY_API_KEY }

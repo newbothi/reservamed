@@ -140,14 +140,16 @@ Requiere [mkcert](https://github.com/FiloSottile/mkcert) para el HTTPS local (`w
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\generar-certificados.ps1   # una vez: CA local + certificados
-powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1    # una vez: claves aleatorias en .env
+powershell -ExecutionPolicy Bypass -File scripts\configurar-secretos.ps1    # una vez: claves aleatorias (.env y secretos\)
 docker compose up --build
 ```
 
 - Portal: https://reservamed.localhost
 - Backoffice: https://reservamed.localhost/backoffice/
 
-`docker compose` se niega a arrancar si falta un secreto en `.env`, y NGINX no arranca sin certificados.
+`docker compose` se niega a arrancar si falta un secreto en `.env` o en `secretos\`, y NGINX no arranca sin certificados.
+Si viene de una versión anterior, vuelva a ejecutar los dos scripts: reutilizan sus claves y certificados
+y solo agregan lo nuevo (certificados internos y la carpeta `secretos\`).
 La primera vez, `db-init` crea la base y los usuarios por servicio, y `ml-bootstrap` genera el historial
 sintético y entrena el primer modelo (uno o dos minutos).
 
@@ -192,9 +194,22 @@ sintético y entrena el primer modelo (uno o dos minutos).
 | ml-service | API key comparada en tiempo constante, modelos firmados (HMAC) antes de cargarlos y sin `/docs` en producción |
 | ASVS | Autoevaluación OWASP ASVS 4.0.3 nivel 2 en [`docs/asvs-nivel-2.md`](docs/asvs-nivel-2.md); las brechas quedan asignadas a la fase 5 |
 
+**Fase 5a de seguridad (cierre del checklist ASVS nivel 2):**
+
+| | |
+|---|---|
+| Mi cuenta | Portal y backoffice: cambiar la contraseña (pide la actual, avisa por correo y cierra las demás sesiones), ver y cerrar sesiones abiertas, botón para ver la contraseña. Las contraseñas largas cuentan completas (antes BCrypt cortaba a 72 bytes) |
+| Datos del paciente | Política de privacidad aceptada al registrarse; descarga de todos sus datos y de quién accedió a su ficha; solicitud de cierre de cuenta (la ficha clínica se conserva el plazo legal) |
+| Personal | Administrar usuarios pide de nuevo el código TOTP (válido 5 minutos en esa sesión). Pantallas **Usuarios** y **Seguridad** en el backoffice |
+| Alertas | Fuerza bruta, cuentas probadas desde una IP, bloqueos masivos, accesos denegados y consulta masiva de pacientes generan alertas (umbrales en `Alertas` de `appsettings.json`) con correo a los administradores |
+| TLS interno | NGINX → BFF → API, API → ml-service, SQL Server (cifrado obligatorio, certificado fijado) y la consola de RabbitMQ van por TLS con la CA local |
+| Secretos | Docker secrets (`secretos\`, en `.gitignore`): las claves ya no están en variables de entorno ni en `docker inspect` |
+| SBOM | Inventario CycloneDX de cada imagen en CI |
+| ASVS | 145 requisitos: 136 cumple, 8 no aplica, 1 riesgo aceptado (HSM, documentado), 0 brechas |
+
 La **matriz rol × endpoint** (cada endpoint con anónimo, dos pacientes, recepción de cada sede, médico y admin) corre en CI y falla si aparece un endpoint sin caso.
 
-Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1` y `scripts\verificar-fase3.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
+Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1`, `scripts\verificar-fase3.ps1`, `scripts\verificar-fase4.ps1` y `scripts\verificar-fase5a.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
 
 Para inspeccionar la base o la consola de RabbitMQ (solo en `127.0.0.1`):
 
@@ -202,7 +217,7 @@ Para inspeccionar la base o la consola de RabbitMQ (solo en `127.0.0.1`):
 docker compose -f docker-compose.yml -f docker-compose.depuracion.yml up -d
 ```
 
-SQL Server en `localhost,1433` (usuario `sa`, clave `SA_PASSWORD` del `.env`); RabbitMQ en http://localhost:15672
+SQL Server en `localhost,1433` (usuario `sa`, clave `SA_PASSWORD` del `.env`); RabbitMQ en https://localhost:15671
 (usuario `reservamed`, clave `RABBIT_PASS`).
 
 ## Levantar en local (Visual Studio + Node)
@@ -273,6 +288,11 @@ Las cuentas del personal piden enrolar un autenticador TOTP en su primer ingreso
 | GET | `/api/auditoria` | admin |
 | GET | `/api/ml/modelo`, `/api/ml/modelos`, `/api/ml/demanda` · POST `/api/ml/modelo/entrenar` | admin |
 | GET | `/api/ml/citas/{id}/riesgo` | personal clínico |
+| POST | `/api/cuenta/clave` · GET `/api/cuenta/sesiones` · POST `/api/cuenta/sesiones/{id}/cerrar` | cualquier usuario |
+| POST | `/api/cuenta/reautenticar` | personal |
+| GET | `/api/cuenta/datos` · POST `/api/cuenta/eliminacion` | paciente |
+| GET | `/api/usuarios` · POST `/api/usuarios/{id}/{desactivar,activar,restablecer-totp}` (con TOTP reciente) | admin |
+| GET | `/api/seguridad/alertas` · POST `/api/seguridad/alertas/{id}/revisada` | admin |
 
 En desarrollo, el documento OpenAPI está en `/openapi/v1.json`.
 
@@ -281,7 +301,6 @@ En desarrollo, el documento OpenAPI está en `/openapi/v1.json`.
 - Tests de integración (Testcontainers con SQL Server y RabbitMQ), sobre todo la concurrencia de reservas.
 - Sobrecupos y lista de espera cuando se libera una hora.
 - Boleta electrónica (SII) del copago.
-- Token en cookie `httpOnly` en lugar de `localStorage`.
 - Validar el recurso FHIR contra el perfil oficial HL7 Chile CL Core.
 - Sobrecupos automáticos en horarios con varias citas de riesgo alto.
 - Calibración de probabilidades y monitoreo de deriva del modelo con datos reales.

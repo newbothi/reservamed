@@ -3,11 +3,19 @@
 # Permisos de RabbitMQ: configure (declarar), write (publicar/enlazar) y read (consumir/enlazar),
 # cada uno es una expresión regular sobre nombres de exchange y cola.
 set -eu
-API="http://rabbitmq:15672/api"
+# F5 (V6.4.1): las contraseñas llegan como Docker secrets (/run/secrets/<VARIABLE>).
+for f in /run/secrets/*; do
+  [ -f "$f" ] || continue
+  n=$(basename "$f")
+  case "$n" in *[!A-Z0-9_]*) continue ;; esac
+  export "$n=$(cat "$f")"
+done
+API="https://rabbitmq:15671/api"
+CURL="curl --cacert /certs/ca.pem"
 VH="reservamed"
 
 req() {  # metodo ruta json — idempotente: un DELETE de algo que ya no existe (404) no es error
-  code=$(curl -s -o /tmp/resp -w '%{http_code}' -u "$RABBIT_USER:$RABBIT_PASS" \
+  code=$($CURL -s -o /tmp/resp -w '%{http_code}' -u "$RABBIT_USER:$RABBIT_PASS" \
     -H 'content-type: application/json' -X "$1" "$API$2" ${3:+-d "$3"})
   case "$code" in
     2*) ;;
@@ -24,7 +32,7 @@ usuario() {  # nombre clave configure write read
 }
 
 for i in $(seq 1 30); do
-  curl -sf -u "$RABBIT_USER:$RABBIT_PASS" "$API/overview" >/dev/null && break
+  $CURL -sf -u "$RABBIT_USER:$RABBIT_PASS" "$API/overview" >/dev/null && break
   echo "Esperando la API de administración de RabbitMQ ($i)..."; sleep 2
 done
 

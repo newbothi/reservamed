@@ -2,6 +2,7 @@ using ReservaMed.Contracts;
 using ReservaMed.Worker;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Configuration.AgregarSecretosDocker();   // F5 (V6.4.1): secretos como archivos en Docker
 
 // Secretos (C1): sin valores por defecto en el código.
 ValidacionSecretos.Exigir(

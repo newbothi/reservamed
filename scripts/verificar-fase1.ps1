@@ -102,7 +102,7 @@ Revisar 'M8' (-not ($cabApi -match '(?im)^server: kestrel')) 'Sin Server: Kestre
 Seccion 'C2 - Webpay simulado fuera de produccion'
 $cuerpo = (& curl.exe --ssl-no-revoke -s "$base/webpay-mock/pagar?token_ws=x" 2>&1) -join ''
 Revisar 'C2' (-not ($cuerpo -match 'webpay')) 'NGINX no publica /webpay-mock/' 'NGINX publica la pagina simulada'
-$r = CurlRed @('-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://api-core:8080/webpay-mock/pagar')
+$r = CurlRed @('-s', '--cacert', '/ca.pem', '-o', '/dev/null', '-w', '%{http_code}', 'https://api-core:8443/webpay-mock/pagar')
 Revisar 'C2' ("$r" -eq '404') 'La API en Production responde 404 en /webpay-mock/' "La API respondio '$r'"
 $cfgApi = (docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' (docker compose ps -q api-core)) -join "`n"
 Revisar 'C2' ($cfgApi -match 'Webpay__Modo=Integracion') 'Webpay en modo Integracion (Transbank)' 'Webpay no esta en modo Integracion'

@@ -1,13 +1,13 @@
 # ReservaMed — checklist OWASP ASVS 4.0.3, nivel 2
 
-Autoevaluación al cierre de la fase 4 de seguridad (no es una auditoría de terceros).
+Autoevaluación al cierre de la fase 5a de seguridad (no es una auditoría de terceros).
 Cada requisito tiene un estado y su evidencia en el repositorio:
 
 - **Cumple**: implementado y, cuando se puede, probado automáticamente (CI o `scripts/verificar-fase*.ps1`).
 - **No aplica**: la aplicación no tiene esa funcionalidad.
-- **Brecha (F5)**: no se cumple todavía. Queda asignado a la fase 5, con la corrección prevista.
+- **Riesgo aceptado**: no se cumple por una limitación del despliegue; se documenta la razón, la mitigación y lo que haría falta en producción.
 
-El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede sin evaluar.
+`scripts/verificar-fase5a.ps1` comprueba que ningún requisito quede sin evaluar ni como brecha.
 
 ## V1 Arquitectura, diseño y modelado de amenazas
 
@@ -19,7 +19,7 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V1.4.1 | Control de acceso en puntos confiables del servidor | Cumple | `PoliticaAcceso` en la API Core; el BFF y el navegador no deciden (F3) |
 | V1.6.1 | Política de gestión de claves criptográficas | Cumple | `scripts/configurar-secretos.ps1`: claves aleatorias por instalación, fuera de git (C1) |
 | V1.8.1 | Datos sensibles identificados y clasificados | Cumple | Estudio (Ley 19.628 / 20.584 / 21.719); columnas enmascaradas en `db/07_privacidad.sql` |
-| V1.9.1 | Comunicación cifrada entre componentes | Brecha (F5) | RabbitMQ usa TLS (M9); BFF → API, API → ml-service y SQL Server van sin TLS validado dentro de redes Docker aisladas |
+| V1.9.1 | Comunicación cifrada entre componentes | Cumple | F5: todo el tráfico interno va cifrado y verificado contra la CA local: NGINX → BFF → API (HTTPS), API → ml-service (HTTPS), SQL Server con `forceencryption` y certificado fijado, AMQPS y consola de RabbitMQ por TLS. `TlsInterno` impide arrancar la API sin esto; `verificar-fase5a.ps1` |
 
 ## V2 Autenticación
 
@@ -27,19 +27,19 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 |---|---|---|---|
 | V2.1.1 | Contraseñas de al menos 12 caracteres | Cumple | `PoliticaContrasenas` (M2), prueba de integración |
 | V2.1.2 | Se permiten contraseñas de 64 caracteres o más | Cumple | Máximo 128 caracteres |
-| V2.1.3 | Sin truncar la contraseña | Brecha (F5) | BCrypt considera solo los primeros 72 bytes; prehash SHA-384 antes de BCrypt con migración de hashes |
+| V2.1.3 | Sin truncar la contraseña | Cumple | `Contrasenas`: SHA-384 de la contraseña completa antes de BCrypt (formato `$rm2$`); los hashes antiguos se migran al ingresar. Prueba `Contrasenas_largas_cuentan_completas_mas_alla_de_72_bytes` |
 | V2.1.4 | Cualquier carácter Unicode imprimible | Cumple | Sin listas de caracteres permitidos |
-| V2.1.5 | El usuario puede cambiar su contraseña | Brecha (F5) | No existe la función; endpoint con revocación de las demás sesiones |
-| V2.1.6 | Cambio de contraseña exige la actual | Brecha (F5) | Depende de V2.1.5 |
+| V2.1.5 | El usuario puede cambiar su contraseña | Cumple | `POST /api/cuenta/clave` y "Mi cuenta" en portal y backoffice (`CuentaTests`) |
+| V2.1.6 | Cambio de contraseña exige la actual | Cumple | Exige la contraseña actual (422 `CLAVE_ACTUAL`, cuenta para el bloqueo) y la política completa para la nueva |
 | V2.1.7 | Se rechazan contraseñas filtradas | Cumple | HIBP con k-anonimato (`VerificadorHibp`) |
 | V2.1.8 | Medidor de fortaleza | Cumple | Portal: `fortaleza()` en el registro |
 | V2.1.9 | Sin reglas de composición | Cumple | Solo largo, lista común, datos personales y filtraciones |
 | V2.1.10 | Sin rotación periódica obligatoria | Cumple | No existe vencimiento de contraseñas |
 | V2.1.11 | Se permite pegar y usar gestores de contraseñas | Cumple | Campos `autocomplete` correctos, sin bloquear pegar |
-| V2.1.12 | Opción de ver la contraseña escrita | Brecha (F5) | Agregar botón "mostrar" en login y registro |
+| V2.1.12 | Opción de ver la contraseña escrita | Cumple | `CampoClave`: botón Ver/Ocultar en login, registro y cambio de contraseña (portal y backoffice) |
 | V2.2.1 | Controles contra automatización (fuerza bruta) | Cumple | Límite por IP en NGINX y API, bloqueo progresivo por cuenta (A2) |
 | V2.2.2 | Autenticadores débiles (SMS, correo) solo como secundarios | Cumple | Personal con TOTP; el correo solo verifica la cuenta |
-| V2.2.3 | Aviso al usuario cuando cambian sus credenciales | Brecha (F5) | Correo al cambiar contraseña o restablecer TOTP |
+| V2.2.3 | Aviso al usuario cuando cambian sus credenciales | Cumple | Correo al cambiar la contraseña, al restablecer el TOTP y al solicitar la eliminación de la cuenta |
 | V2.4.1 | Contraseñas con hash adaptativo y sal | Cumple | BCrypt (costo 11) |
 | V2.4.2 | Sal de al menos 32 bits | Cumple | BCrypt genera sal de 128 bits |
 | V2.5.1 | Recuperación de cuenta segura | No aplica | No hay recuperación en línea; se gestiona en la clínica |
@@ -63,8 +63,8 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V3.2.3 | Tokens guardados de forma segura en el navegador | Cumple | Cookie HttpOnly sellada con AES-GCM; el navegador no ve tokens (F2) |
 | V3.3.1 | Cerrar sesión invalida la sesión | Cumple | Gate F2: la copia de la cookie da 401 tras salir |
 | V3.3.2 | Vida máxima de sesión | Cumple | Acceso 15 min, sesión máxima 12 h (personal) y 7 días (pacientes) |
-| V3.3.3 | Cerrar las demás sesiones al cambiar credenciales | Brecha (F5) | Junto con V2.1.5 |
-| V3.3.4 | Ver y cerrar sesiones activas | Brecha (F5) | Listado de sesiones en el perfil |
+| V3.3.3 | Cerrar las demás sesiones al cambiar credenciales | Cumple | Cambiar la contraseña revoca todas las demás sesiones (`RevocarTodasAsync` con `excepto`) |
+| V3.3.4 | Ver y cerrar sesiones activas | Cumple | `GET /api/cuenta/sesiones` y cierre individual; solo las propias (404 para sesiones ajenas) |
 | V3.4.1 | Cookie con atributo Secure | Cumple | `verificar-fase2.ps1` |
 | V3.4.2 | Cookie HttpOnly | Cumple | `verificar-fase2.ps1` |
 | V3.4.3 | Cookie SameSite | Cumple | SameSite=Strict |
@@ -72,7 +72,7 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V3.4.5 | Path de la cookie acotado | Cumple | `Path=/` exigido por `__Host-` |
 | V3.5.2 | Sin secretos estáticos como sesión | Cumple | Sesiones revocables, no API keys |
 | V3.5.3 | Tokens sin estado firmados y validados | Cumple | JWT HS256 de 15 min + sid validado en cada petición |
-| V3.7.1 | Reautenticación antes de acciones sensibles | Brecha (F5) | Pedir TOTP de nuevo al desactivar usuarios o restablecer TOTP |
+| V3.7.1 | Reautenticación antes de acciones sensibles | Cumple | `[RequiereReautenticacion]`: administrar usuarios exige TOTP confirmado en los últimos 5 minutos en esa misma sesión (403 `REAUTENTICAR`) |
 
 ## V4 Control de acceso
 
@@ -115,8 +115,8 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V6.2.5 | Sin modos inseguros | Cumple | Sin ECB ni CBC sin MAC |
 | V6.2.6 | Nonces únicos | Cumple | IV aleatorio de 96 bits por operación |
 | V6.3.1 | Números aleatorios con generador seguro | Cumple | `RandomNumberGenerator` / `crypto.randomBytes` |
-| V6.4.1 | Gestor de secretos (vault) | Brecha (F5) | Hoy en `.env`; en producción, Azure Key Vault o Docker secrets |
-| V6.4.2 | El material de claves no se expone a la aplicación | Brecha (F5) | Igual que V6.4.1 (HSM / vault) |
+| V6.4.1 | Gestor de secretos (vault) | Cumple | Docker secrets (`secretos/`, archivos en `/run/secrets`): las claves de la API, Worker, BFF y ml-service ya no están en variables de entorno ni en `docker inspect`. Excepción documentada: la clave inicial de `sa` y del administrador de RabbitMQ (sus imágenes solo la aceptan por variable; ningún servicio de la app las usa) |
+| V6.4.2 | El material de claves no se expone a la aplicación | Riesgo aceptado | Sin HSM ni vault externo en este despliegue local: la aplicación lee sus claves desde archivos de solo lectura. Mitigación: una clave por propósito y por instalación, contenedores sin shell ni root, TDE con certificado en SQL Server. En producción: Azure Key Vault con claves no exportables |
 
 ## V7 Errores y registro
 
@@ -144,8 +144,8 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V8.2.2 | Sin datos sensibles en el almacenamiento del navegador | Cumple | Sin tokens ni datos personales en localStorage (F2) |
 | V8.2.3 | Datos del cliente borrados al cerrar sesión | Cumple | Cookie eliminada y sesión revocada |
 | V8.3.1 | Datos sensibles en el cuerpo, no en la URL | Cumple | Búsqueda por RUT con POST (A9) |
-| V8.3.2 | El usuario puede exportar y borrar sus datos | Brecha (F5) | Derechos ARCO (Ley 21.719): exportación y solicitud de eliminación |
-| V8.3.3 | Información clara sobre el tratamiento de datos | Brecha (F5) | Política de privacidad y consentimiento explícito en el registro |
+| V8.3.2 | El usuario puede exportar y borrar sus datos | Cumple | `GET /api/cuenta/datos` (JSON con datos, horas, bonos, pagos y accesos a la ficha) y `POST /api/cuenta/eliminacion` (cierra la cuenta, borra el contacto, ficha en retención legal). Quedan en `SolicitudesDatos` |
+| V8.3.3 | Información clara sobre el tratamiento de datos | Cumple | Página `/privacidad` y aceptación obligatoria al registrarse (`Usuarios.PrivacidadAceptadaEn`, validado en BFF y API) |
 | V8.3.4 | Datos sensibles identificados con política de uso | Cumple | Estudio de seguridad, sección de cumplimiento |
 | V8.3.5 | Acceso a datos sensibles auditado | Cumple | VER_PACIENTE, VER_CITA, VER_RIESGO, FHIR_* (M6) |
 | V8.3.6 | Datos sensibles borrados de la memoria | No aplica | Runtimes administrados (.NET, Node, Python) |
@@ -159,8 +159,8 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V9.1.1 | TLS para toda conexión de clientes | Cumple | Solo HTTPS; HTTP redirige (C4) |
 | V9.1.2 | Suites de cifrado fuertes | Cumple | Configuración Mozilla intermedia en NGINX |
 | V9.1.3 | Solo TLS 1.2 y 1.3 | Cumple | `verificar-fase1.ps1` rechaza TLS 1.0/1.1 |
-| V9.2.1 | Certificados confiables en conexiones de servidor | Brecha (F5) | SQL Server con `TrustServerCertificate=True` dentro de la red interna |
-| V9.2.2 | TLS en todas las conexiones internas, incluida la base | Brecha (F5) | Igual que V1.9.1 |
+| V9.2.1 | Certificados confiables en conexiones de servidor | Cumple | Ningún cliente usa `TrustServerCertificate=True`: la API y el Worker fijan `certs/sqlserver.crt`; ml-service, BFF y NGINX validan contra `certs/ca.pem` |
+| V9.2.2 | TLS en todas las conexiones internas, incluida la base | Cumple | Igual que V1.9.1; SQL Server rechaza conexiones sin cifrar (`infra/sqlserver/mssql.conf`) |
 | V9.2.3 | Conexiones a sistemas externos autenticadas | Cumple | Transbank y HIBP por HTTPS validado |
 
 ## V10 Código malicioso
@@ -180,8 +180,8 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V11.1.4 | Controles contra automatización | Cumple | Prueba de trabajo en registro y reservas (A8) |
 | V11.1.5 | Límites y validaciones del negocio | Cumple | Webpay: monto, orden y estado (A6) |
 | V11.1.6 | Sin condiciones de carrera (TOCTOU) | Cumple | Reserva atómica (B3) y confirmación idempotente (A6) |
-| V11.1.7 | Monitoreo de actividad inusual | Brecha (F5) | Tablero de accesos denegados y bloqueos |
-| V11.1.8 | Alertas configurables ante ataques automatizados | Brecha (F5) | Alertas sobre los eventos de bloqueo y límite |
+| V11.1.7 | Monitoreo de actividad inusual | Cumple | `ServicioAlertas`: reglas sobre la auditoría (fuerza bruta por IP, cuentas probadas, bloqueos masivos, accesos denegados, consulta masiva de pacientes); pantalla Seguridad del backoffice |
+| V11.1.8 | Alertas configurables ante ataques automatizados | Cumple | Umbrales configurables (sección `Alertas`), una alerta por regla y ventana, correo a los administradores activos (`AlertasTests`) |
 
 ## V12 Archivos y recursos
 
@@ -212,7 +212,7 @@ El script `scripts/verificar-fase4.ps1` comprueba que ningún requisito quede si
 | V14.2.2 | Funciones innecesarias eliminadas | Cumple | Sin OpenAPI ni `/docs` en producción (B2, M5) |
 | V14.2.3 | Recursos locales, sin CDN | Cumple | Todo empaquetado por Vite |
 | V14.2.4 | Componentes de fuentes confiables | Cumple | Imágenes fijadas por digest (M4) |
-| V14.2.5 | Inventario de componentes (SBOM) | Brecha (F5) | Generar SBOM CycloneDX en CI |
+| V14.2.5 | Inventario de componentes (SBOM) | Cumple | SBOM CycloneDX de cada imagen y del código fuente en CI (artefacto `reportes-borde`, paso que falla si un SBOM viene vacío) |
 | V14.3.2 | Sin modo depuración en producción | Cumple | `ASPNETCORE_ENVIRONMENT=Production`, Webpay simulado deshabilitado (C2) |
 | V14.3.3 | Las cabeceras no exponen versiones | Cumple | Sin `Server` con versión ni `X-Powered-By` (M8) |
 | V14.4.1 | Content-Type con charset | Cumple | JSON y HTML en UTF-8 |

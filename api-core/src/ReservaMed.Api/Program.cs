@@ -17,6 +17,8 @@ using ReservaMed.Api.Modules.Pagos;
 using ReservaMed.Contracts;
 
 var builder = WebApplication.CreateBuilder(args);
+// F5 (V6.4.1): en Docker los secretos son archivos (/run/secrets), no variables de entorno.
+builder.Configuration.AgregarSecretosDocker();
 
 // ---------- Secretos (C1): sin valores por defecto en el código ----------
 ValidacionSecretos.Exigir(
@@ -40,6 +42,14 @@ var webpaySimulado = opcionesWebpay.Modo == ModoWebpay.Simulado;
 var problemasRabbit = (builder.Configuration.GetSection("RabbitMq").Get<OpcionesConexionRabbit>() ?? new()).Revisar(builder.Environment.IsProduction());
 if (problemasRabbit.Count > 0)
     throw new InvalidOperationException(string.Join(Environment.NewLine, problemasRabbit));
+
+// ---------- F5 (V9.2.2): en producción toda conexión interna va cifrada y con certificado verificado ----------
+if (builder.Environment.IsProduction())
+{
+    var problemasTls = TlsInterno.Revisar(builder.Configuration.GetConnectionString("ReservaMed"), builder.Configuration["Ml:Url"]);
+    if (problemasTls.Count > 0)
+        throw new InvalidOperationException("TLS interno incompleto:" + Environment.NewLine + string.Join(Environment.NewLine, problemasTls.Select(p => " - " + p)));
+}
 
 // ---------- Configuración ----------
 builder.Services.Configure<ReglasNegocio>(builder.Configuration.GetSection("Reglas"));
@@ -90,6 +100,14 @@ builder.Services.AddHttpClient<ClienteMl>((sp, http) =>
     http.BaseAddress = new Uri(o.Url.TrimEnd('/') + "/");
     http.DefaultRequestHeaders.Add("X-Api-Key", o.ApiKey);
     http.Timeout = TimeSpan.FromMinutes(4); // el límite real lo pone cada llamada
+}).ConfigurePrimaryHttpMessageHandler(sp =>
+{
+    // F5 (V9.2.2): HTTPS interno; el certificado del ml-service se valida contra la CA local.
+    var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OpcionesMl>>().Value;
+    var handler = new SocketsHttpHandler();
+    if (!string.IsNullOrEmpty(o.CaCert))
+        handler.SslOptions.RemoteCertificateValidationCallback = ValidacionCertificados.ConfiarEnCa(o.CaCert);
+    return handler;
 });
 
 // ---------- Módulos ----------

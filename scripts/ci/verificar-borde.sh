@@ -48,13 +48,13 @@ grep -qi "^server: kestrel" <<<"$api_cab" && fallo "M8 Kestrel" "Se expone Serve
 # ---------------- C2: Webpay simulado ----------------
 cuerpo=$("${CURL[@]}" "$BASE/webpay-mock/pagar?token_ws=x")
 grep -qi "webpay" <<<"$cuerpo" && fallo "C2 webpay-mock" "NGINX publica la página simulada" || bien "C2 NGINX no publica /webpay-mock/"
-interno=$(dc exec -T nginx wget -S -q -O /dev/null http://api-core:8080/webpay-mock/pagar 2>&1)
+interno=$(dc exec -T nginx wget -S -q -O /dev/null https://api-core:8443/webpay-mock/pagar 2>&1)
 grep -q "404" <<<"$interno" && bien "C2 la API (Production) responde 404 en /webpay-mock/" || fallo "C2 controlador" "La API respondió: $(head -c 200 <<<"$interno")"
 
 # ---------------- A5 / M9: puertos y red interna ----------------
 mailpit=$(dc port mailpit 8025 2>&1)
 [[ "$mailpit" == 127.0.0.1:8025 ]] && bien "A7 Mailpit solo en 127.0.0.1" || fallo "A7 Mailpit" "Mailpit publicado como '$mailpit'"
-for p in 1433 5671 5672 15672 1025; do
+for p in 1433 5671 5672 15671 15672 1025; do
   if timeout 3 bash -c "</dev/tcp/127.0.0.1/$p" 2>/dev/null; then fallo "A5 puerto" "El puerto $p está abierto en el host"; else bien "A5 puerto $p cerrado en el host"; fi
 done
 if dc exec -T rabbitmq wget -q -T 5 -O /dev/null https://www.google.com 2>/dev/null; then

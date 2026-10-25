@@ -12,7 +12,7 @@ public sealed record UsuarioAdminDto(int Id, string Email, string Rol, string No
 [ApiController]
 [Route("api/usuarios")]
 [Authorize(Roles = Roles.Admin)]
-public sealed class UsuariosController(ISqlConnectionFactory db, ServicioSesiones sesiones, IAuditoria auditoria) : ControllerBase
+public sealed class UsuariosController(ISqlConnectionFactory db, ServicioSesiones sesiones, IAuditoria auditoria, IEnviadorCorreo correo) : ControllerBase
 {
     [HttpGet]
     public async Task<IEnumerable<UsuarioAdminDto>> Listar([FromQuery] string? rol)
@@ -61,6 +61,12 @@ public sealed class UsuariosController(ISqlConnectionFactory db, ServicioSesione
             return NotFound();
         var n = await sesiones.RevocarTodasAsync(id, "TOTP restablecido");
         await auditoria.RegistrarAsync("TOTP_RESTABLECIDO", "Usuario", id, $"{n} sesiones revocadas");
+        // V2.2.3: el dueño de la cuenta se entera de que cambió su segundo factor.
+        var email = await cn.ExecuteScalarAsync<string>("SELECT Email FROM dbo.Usuarios WHERE Id = @Id", new { Id = id });
+        if (email is not null)
+            await correo.EnviarAsync(new Correo(email, "Se restableció su autenticador de ReservaMed",
+                "Un administrador restableció el autenticador (código de 6 dígitos) de su cuenta y cerró sus sesiones. " +
+                "En su próximo ingreso deberá enrolar uno nuevo. Si no lo solicitó, avise de inmediato a la clínica."));
         return NoContent();
     }
 }

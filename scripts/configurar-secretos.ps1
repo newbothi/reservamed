@@ -149,6 +149,23 @@ Escribir-Env $envDocker (@(
 ) + $extras)
 Write-Host "Docker: .env escrito en la raiz del proyecto." -ForegroundColor Green
 
+# --- secretos/ para docker compose (F5, ASVS V6.4.1) ---
+# Los servicios de la aplicacion reciben sus claves como Docker secrets (archivos en /run/secrets),
+# no como variables de entorno: asi no aparecen en "docker inspect". Mismos valores que .env.
+$carpetaSecretos = Join-Path $raiz "secretos"
+New-Item -ItemType Directory -Force -Path $carpetaSecretos | Out-Null
+$secretos = [ordered]@{
+    SA_PASSWORD = $saPass; SQL_API_PASS = $sqlApi; SQL_WORKER_PASS = $sqlWorker; SQL_ML_PASS = $sqlMl
+    SQL_ML_SEED_PASS = $sqlSeed; SQL_TDE_PASS = $tdePass; RABBIT_PASS = $rbPass; RABBIT_API_PASS = $rbApi
+    RABBIT_WORKER_PASS = $rbWorker; RABBIT_ML_PASS = $rbMl; JWT_KEY = $jwtKey; TOTP_KEY = $totpKey
+    HUELLA_KEY = $huellaKey; BFF_SESSION_KEY = $bffKey; ML_API_KEY = $mlKey; WEBPAY_API_KEY = $webpayKey
+}
+foreach ($k in $secretos.Keys) {
+    # Sin salto de linea final ni BOM: el archivo es exactamente el valor.
+    [System.IO.File]::WriteAllText((Join-Path $carpetaSecretos $k), $secretos[$k], (New-Object System.Text.UTF8Encoding $false))
+}
+Write-Host "Docker: $($secretos.Count) secretos escritos en secretos/ (Docker secrets)." -ForegroundColor Green
+
 Write-Host ""
 Write-Host "Listo. Reinicie la API en Visual Studio y el ml-service para que tomen los nuevos valores."
 if (-not (Test-Path (Join-Path $raiz "certs/reservamed.crt"))) {

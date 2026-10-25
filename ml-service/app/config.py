@@ -11,6 +11,7 @@ rechaza todas las peticiones HTTP (falla cerrado).
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote, urlsplit, urlunsplit
 
 VALORES_COMPROMETIDOS = frozenset({
     "CAMBIAR-esta-clave-de-desarrollo-ReservaMed-2026-minimo-32-bytes",
@@ -32,7 +33,38 @@ def cargar_env(ruta: Path) -> None:
         os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
 
 
+def cargar_secretos_archivo(carpeta: Path = Path("/run/secrets")) -> list[str]:
+    """F5 (ASVS V6.4.1): Docker secrets. Cada archivo se llama como la variable; tiene prioridad."""
+    if not carpeta.is_dir():
+        return []
+    cargados = []
+    for archivo in sorted(carpeta.iterdir()):
+        if archivo.is_file() and archivo.name.isupper() and archivo.name.replace("_", "").isalnum():
+            os.environ[archivo.name] = archivo.read_text(encoding="utf-8").strip()
+            cargados.append(archivo.name)
+    return cargados
+
+
+cargar_secretos_archivo()
 cargar_env(Path(__file__).resolve().parent.parent / ".env")
+
+
+def con_clave_odbc(cadena: str, clave: str) -> str:
+    """Agrega PWD a la cadena ODBC (la contraseña llega aparte, como secreto). Llaves escapadas."""
+    if not clave or "PWD=" in cadena.upper():
+        return cadena
+    return cadena.rstrip(";") + ";PWD={" + clave.replace("}", "}}") + "};"
+
+
+def con_clave_amqp(url: str, clave: str) -> str:
+    """Inserta la contraseña en amqps://usuario@host/vhost (la URL configurada no la incluye)."""
+    if not clave:
+        return url
+    partes = urlsplit(url)
+    if partes.password or not partes.username:
+        return url
+    host = partes.hostname + (f":{partes.port}" if partes.port else "")
+    return urlunsplit((partes.scheme, f"{partes.username}:{quote(clave, safe='')}@{host}", partes.path, partes.query, partes.fragment))
 
 
 def _bool(nombre: str, defecto: str) -> bool:
@@ -50,12 +82,13 @@ def api_key_valida(clave: str) -> bool:
 @dataclass(frozen=True)
 class Config:
     # En Windows local normalmente es "ODBC Driver 17 for SQL Server" o 18 (ver README).
-    db: str = field(default_factory=lambda: os.getenv(
+    db: str = field(default_factory=lambda: con_clave_odbc(os.getenv(
         "ML_DB",
         "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=ReservaMed;"
         "Trusted_Connection=yes;TrustServerCertificate=yes",
-    ))
-    rabbit_url: str = field(default_factory=lambda: os.getenv("ML_RABBIT_URL", "amqp://guest:guest@localhost/"))
+    ), os.getenv("ML_DB_PASS", "")))
+    rabbit_url: str = field(default_factory=lambda: con_clave_amqp(
+        os.getenv("ML_RABBIT_URL", "amqp://guest:guest@localhost/"), os.getenv("ML_RABBIT_PASS", "")))
     # M9: con amqps:// se valida el certificado del broker contra esta CA (certs/ca.pem).
     rabbit_ca: str = field(default_factory=lambda: os.getenv("ML_RABBIT_CA", ""))
     api_key: str = field(default_factory=lambda: os.getenv("ML_API_KEY", ""))

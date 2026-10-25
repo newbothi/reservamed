@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { LectorController } from './lector/lector.controller';
-import { cargarEnv, leerConfig } from './comun/config';
+import { cargarEnv, cargarSecretosArchivo, leerConfig, leerTls } from './comun/config';
+cargarSecretosArchivo();
 cargarEnv();
 import { Controller, Get, Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -39,7 +40,8 @@ class AppModule {}
 async function bootstrap() {
   // Falla al arrancar si falta BFF_SESSION_KEY (mismo criterio que C1 en la API).
   const cfg = leerConfig();
-  const app = await NestFactory.create(AppModule);
+  const httpsOptions = leerTls();
+  const app = await NestFactory.create(AppModule, httpsOptions ? { httpsOptions } : {});
   app.setGlobalPrefix('bff');
   app.enableShutdownHooks();
   // A4: X-Forwarded-For solo vale si viene de NGINX (TRUSTED_PROXIES); el resto se ignora.
@@ -58,7 +60,7 @@ async function bootstrap() {
 
   const puerto = Number(process.env.PORT ?? 3000);
   await app.listen(puerto);
-  console.log(`BFF escuchando en http://localhost:${puerto}/bff (API Core: ${process.env.API_CORE_URL ?? 'http://localhost:5080'})`);
+  console.log(`BFF escuchando en ${httpsOptions ? 'https' : 'http'}://localhost:${puerto}/bff (API Core: ${process.env.API_CORE_URL ?? 'http://localhost:5080'})`);
 }
 
 bootstrap();

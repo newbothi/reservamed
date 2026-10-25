@@ -105,7 +105,7 @@ public sealed class ConsumidorNotificaciones(IConfiguration config, ILogger<Cons
 {
     private static readonly CultureInfo Chile = new("es-CL");
     private static readonly TimeZoneInfo ZonaChile = TimeZoneInfo.FindSystemTimeZoneById("America/Santiago");
-    private readonly string _cadena = config.GetConnectionString("ReservaMed")!;
+    private readonly string _cadena = SecretosArchivo.CadenaSql(config.GetConnectionString("ReservaMed")!, config["Sql:Clave"]);
 
     protected override string Cola => "reservamed.notificaciones";
     protected override string[] RoutingKeys => ["cita.*"];
@@ -239,7 +239,7 @@ public sealed class ConsumidorHis(IConfiguration config, ILogger<ConsumidorHis> 
 /// </summary>
 public sealed class RetencionNotificaciones(IConfiguration config, ILogger<RetencionNotificaciones> log) : BackgroundService
 {
-    private readonly string _cadena = config.GetConnectionString("ReservaMed")!;
+    private readonly string _cadena = SecretosArchivo.CadenaSql(config.GetConnectionString("ReservaMed")!, config["Sql:Clave"]);
     private readonly int _dias = config.GetValue("Privacidad:RetencionNotificacionesDias", 90);
 
     protected override async Task ExecuteAsync(CancellationToken ct)
