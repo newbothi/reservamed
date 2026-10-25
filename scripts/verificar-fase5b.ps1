@@ -310,10 +310,10 @@ if ($admin -and $brier -ne '1') {
 }
 $m = Sql "SELECT CONCAT(Auc, '|', Brier, '|', BrierBase, '|', PrecisionAlto, '|', TasaBase, '|', LEN(Calibracion)) FROM dbo.ModelosML WHERE Tipo = 'INASISTENCIA' AND Activo = 1"
 $p = "$m".Split('|')
-$ok = $p.Count -eq 6 -and [double]::Parse($p[0], [Globalization.CultureInfo]::InvariantCulture) -ge 0.60 -and
+$gateOk = $p.Count -eq 6 -and [double]::Parse($p[0], [Globalization.CultureInfo]::InvariantCulture) -ge 0.60 -and
       [double]::Parse($p[1], [Globalization.CultureInfo]::InvariantCulture) -lt [double]::Parse($p[2], [Globalization.CultureInfo]::InvariantCulture) -and
       [double]::Parse($p[3], [Globalization.CultureInfo]::InvariantCulture) -gt [double]::Parse($p[4], [Globalization.CultureInfo]::InvariantCulture) -and [int]$p[5] -gt 100
-Revisar 'ML' $ok "Modelo activo dentro del gate: AUC $($p[0]), Brier $($p[1]) < $($p[2]) (tasa base), calibracion por decil guardada" "Modelo activo: '$m'"
+Revisar 'ML' $gateOk "Modelo activo dentro del gate: AUC $($p[0]), Brier $($p[1]) < $($p[2]) (tasa base), calibracion por decil guardada" "Modelo activo: '$m'"
 $r = Pedir $admin 'GET' '/bff/bo/api/ml/modelo'
 Revisar 'ML' ($r.Status -eq 200 -and $null -ne $r.Json.brier -and @($r.Json.calibracion).Count -ge 5) 'El backoffice recibe el Brier y la calibracion del modelo' "GET modelo respondio $($r.Status)"
 $sinGrupo = Sql "SELECT COUNT(1) FROM dbo.ModelosML WHERE Coeficientes LIKE '%Prevision%' OR Coeficientes LIKE '%Tramo%' OR Coeficientes LIKE '%Sexo%'"
