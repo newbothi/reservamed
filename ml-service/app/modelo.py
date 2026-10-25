@@ -12,13 +12,16 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import precision_score, recall_score, roc_auc_score
+from sklearn.metrics import brier_score_loss, precision_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .features import BINARIAS, CATEGORICAS, NUMERICAS, etiqueta, preparar
 
 MIN_MUESTRAS = 500
+# F5b (revisión del modelo): un modelo nuevo solo reemplaza al activo si discrimina algo mejor que
+# el azar y sus probabilidades son mejores que repetir la tasa base (Brier menor).
+AUC_MINIMO = 0.60
 
 
 @dataclass
@@ -32,6 +35,19 @@ class ResultadoEntrenamiento:
     umbral_medio: float
     umbral_alto: float
     coeficientes: list[dict]
+    brier: float = 0.0          # error cuadrático de las probabilidades en la prueba (menor = mejor)
+    brier_base: float = 0.0     # el mismo error si se predijera siempre la tasa base
+    calibracion: list[dict] | None = None   # por decil: probabilidad media vs inasistencia real
+
+    def problemas_calidad(self) -> list[str]:
+        problemas = []
+        if self.auc < AUC_MINIMO:
+            problemas.append(f"AUC {self.auc:.3f} bajo el mínimo {AUC_MINIMO:.2f}")
+        if self.brier >= self.brier_base:
+            problemas.append(f"Brier {self.brier:.4f} no mejora a la tasa base ({self.brier_base:.4f})")
+        if self.precision_alto <= self.tasa_base:
+            problemas.append("el nivel ALTO no concentra más inasistencias que el promedio")
+        return problemas
 
 
 def construir_pipeline() -> Pipeline:
@@ -69,6 +85,14 @@ def entrenar(df: pd.DataFrame) -> ResultadoEntrenamiento:
     umbral_alto = float(np.quantile(p, 0.80))
     alto = p >= umbral_alto
 
+    tasa_entreno = float(entreno["NoAsistio"].mean())
+    deciles = pd.qcut(p, 10, labels=False, duplicates="drop")
+    calibracion = [
+        {"decil": int(d) + 1, "probabilidadMedia": round(float(p[deciles == d].mean()), 4),
+         "inasistenciaReal": round(float(y[deciles == d].mean()), 4), "citas": int((deciles == d).sum())}
+        for d in sorted(set(deciles.tolist()))
+    ]
+
     # Modelo final: con todos los datos.
     final = construir_pipeline().fit(preparar(df), df["NoAsistio"].astype(int))
 
@@ -82,6 +106,9 @@ def entrenar(df: pd.DataFrame) -> ResultadoEntrenamiento:
         umbral_medio=umbral_medio,
         umbral_alto=umbral_alto,
         coeficientes=coeficientes(final),
+        brier=float(brier_score_loss(y, p)),
+        brier_base=float(brier_score_loss(y, np.full_like(p, tasa_entreno))),
+        calibracion=calibracion,
     )
 
 

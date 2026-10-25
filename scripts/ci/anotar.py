@@ -63,7 +63,7 @@ def trx(ruta: Path) -> int:
     import xml.etree.ElementTree as ET
 
     ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
-    raiz = ET.parse(ruta).getroot()
+    raiz = ET.parse(ruta).getroot()  # nosemgrep: use-defused-xml-parse (reporte .trx generado por nuestras pruebas)
     fallidas = 0
     for r in raiz.iterfind(".//t:UnitTestResult", ns):
         if r.get("outcome") != "Failed":

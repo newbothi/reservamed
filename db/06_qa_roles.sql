@@ -4,7 +4,7 @@
    Idempotente: db-init lo ejecuta en cada arranque. */
 USE ReservaMed;
 GO
-DECLARE @Hash VARCHAR(100) = '$2a$11$LKYLu7WF9Zs7E/NLZXjOauZFoGu/yz5ffOdvh1265UxBSZngaCTOW';
+DECLARE @Hash VARCHAR(100) = '$2a$11$LKYLu7WF9Zs7E/NLZXjOauZFoGu/yz5ffOdvh1265UxBSZngaCTOW';  -- nosemgrep: detected-bcrypt-hash (hash de la clave demo publicada Demo1234!)
 DECLARE @SedeProv INT = (SELECT Id FROM dbo.Sedes WHERE Comuna = N'Providencia');
 DECLARE @SedeLC   INT = (SELECT Id FROM dbo.Sedes WHERE Comuna = N'Las Condes');
 DECLARE @Soto     INT = (SELECT Id FROM dbo.Profesionales WHERE Rut = '15234567-4');

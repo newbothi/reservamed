@@ -69,7 +69,7 @@ GO
    enrolar su propio TOTP sin tocar el del usuario. Clave Demo1234! (solo datos demo). */
 IF NOT EXISTS (SELECT 1 FROM dbo.Usuarios WHERE Email = N'qa@reservamed.cl')
     INSERT INTO dbo.Usuarios (Email, PasswordHash, Rol, NombreVisible, EmailVerificado)
-    VALUES (N'qa@reservamed.cl', '$2a$11$LKYLu7WF9Zs7E/NLZXjOauZFoGu/yz5ffOdvh1265UxBSZngaCTOW', 'ADMIN', N'QA automatizado', 1);
+    VALUES (N'qa@reservamed.cl', '$2a$11$LKYLu7WF9Zs7E/NLZXjOauZFoGu/yz5ffOdvh1265UxBSZngaCTOW', 'ADMIN', N'QA automatizado', 1);  -- nosemgrep: detected-bcrypt-hash (hash de la clave demo publicada Demo1234!)
 GO
 PRINT 'Identidad y sesiones listas.';
 GO

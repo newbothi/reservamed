@@ -18,6 +18,9 @@ interface Modelo {
   activo: boolean;
   coeficientes?: Coeficiente[];
   citasRecalculadas?: number;
+  brier?: number | null;
+  brierBase?: number | null;
+  observaciones?: string | null;
 }
 
 interface Demanda {
@@ -107,6 +110,10 @@ export default function Modelos() {
               <small>de las citas marcadas ALTO, cuántas faltaron</small></div>
             <div className="tile"><span>Cobertura nivel ALTO</span><strong>{pct(modelo.recallAlto)}</strong>
               <small>de las inasistencias, cuántas detectó</small></div>
+            {modelo.brier != null && modelo.brierBase != null && (
+              <div className="tile"><span>Calibración (Brier)</span><strong>{modelo.brier.toFixed(4)}</strong>
+                <small>menor es mejor · sin modelo: {modelo.brierBase.toFixed(4)}</small></div>
+            )}
           </div>
           <p className="sutil">
             Versión {modelo.version} · entrenado {modelo.entrenadoEn.replace('T', ' ')} ·
@@ -194,7 +201,9 @@ export default function Modelos() {
                   <td className="num">{h.muestras.toLocaleString('es-CL')}</td>
                   <td className="num">{h.auc.toFixed(3)}</td>
                   <td className="num">{pct(h.precisionAlto)}</td>
-                  <td>{h.activo ? <span className="badge ok">Activo</span> : <span className="badge neutro">Anterior</span>}</td>
+                  <td>{h.activo ? <span className="badge ok">Activo</span>
+                    : h.observaciones ? <span className="badge alerta" title={h.observaciones}>Rechazado: {h.observaciones}</span>
+                    : <span className="badge neutro">Anterior</span>}</td>
                 </tr>
               ))}
             </tbody>

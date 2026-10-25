@@ -35,7 +35,7 @@ export const NOMBRE_DESAFIO = '__Host-rm_2fa';
  */
 export function sellar(datos: unknown, clave: Buffer, contexto: string): string {
   const iv = randomBytes(12);
-  const c = createCipheriv('aes-256-gcm', clave, iv);
+  const c = createCipheriv('aes-256-gcm', clave, iv, { authTagLength: 16 });
   c.setAAD(Buffer.from(contexto, 'utf8'));
   const cifrado = Buffer.concat([c.update(JSON.stringify(datos), 'utf8'), c.final()]);
   return Buffer.concat([iv, c.getAuthTag(), cifrado]).toString('base64url');
@@ -46,7 +46,7 @@ export function abrir<T>(sello: string | undefined, clave: Buffer, contexto: str
   try {
     const b = Buffer.from(sello, 'base64url');
     if (b.length < 29) return null;
-    const d = createDecipheriv('aes-256-gcm', clave, b.subarray(0, 12));
+    const d = createDecipheriv('aes-256-gcm', clave, b.subarray(0, 12), { authTagLength: 16 });
     d.setAAD(Buffer.from(contexto, 'utf8'));
     d.setAuthTag(b.subarray(12, 28));
     return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8')) as T;

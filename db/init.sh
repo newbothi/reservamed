@@ -39,3 +39,5 @@ sa -I -b -i /scripts/04_usuarios.sql \
 sa -I -b -i /scripts/07_privacidad.sql -v TDE_PASS="$SQL_TDE_PASS"
 # F5: cuenta (reautenticación, consentimiento), solicitudes de datos y alertas de seguridad
 sa -I -b -i /scripts/08_cuenta.sql
+# F5b: calibración y gate de calidad del modelo de inasistencia
+sa -I -b -i /scripts/09_ml_revision.sql

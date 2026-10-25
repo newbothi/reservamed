@@ -64,6 +64,7 @@ class ServicioInasistencia:
     def entrenar(self) -> dict:
         datos = db.consultar(SQL_ENTRENAMIENTO)
         resultado = modelo.entrenar(datos)
+        problemas = resultado.problemas_calidad()
         ahora = db.ahora_chile()
         version = f"inasistencia-{ahora:%Y%m%d-%H%M%S}"
         sinteticos = bool(db.escalar("SELECT COUNT(1) FROM dbo.Pacientes WHERE Email LIKE '%@sintetico.cl'"))
@@ -78,16 +79,26 @@ class ServicioInasistencia:
 
         with db.conexion() as cn:
             cur = cn.cursor()
-            cur.execute("UPDATE dbo.ModelosML SET Activo = 0 WHERE Tipo = ? AND Activo = 1", TIPO)
+            # F5b: un modelo que no pasa el mínimo de calidad queda registrado pero inactivo; sigue el anterior.
+            if not problemas:
+                cur.execute("UPDATE dbo.ModelosML SET Activo = 0 WHERE Tipo = ? AND Activo = 1", TIPO)
             cur.execute(
                 """INSERT INTO dbo.ModelosML (Tipo, Version, Algoritmo, EntrenadoEn, Muestras, TasaBase, Auc,
-                       PrecisionAlto, RecallAlto, UmbralMedio, UmbralAlto, Coeficientes, DatosSinteticos, Activo)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                       PrecisionAlto, RecallAlto, UmbralMedio, UmbralAlto, Coeficientes, DatosSinteticos, Activo,
+                       Brier, BrierBase, Calibracion, Observaciones)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 TIPO, version, "LogisticRegression (scikit-learn)", ahora, resultado.muestras,
                 round(resultado.tasa_base, 4), round(resultado.auc, 4), round(resultado.precision_alto, 4),
                 round(resultado.recall_alto, 4), round(resultado.umbral_medio, 4), round(resultado.umbral_alto, 4),
-                json.dumps(resultado.coeficientes, ensure_ascii=False), sinteticos,
+                json.dumps(resultado.coeficientes, ensure_ascii=False), sinteticos, 0 if problemas else 1,
+                round(resultado.brier, 4), round(resultado.brier_base, 4),
+                json.dumps(resultado.calibracion or [], ensure_ascii=False), "; ".join(problemas) or None,
             )
+        if problemas:
+            ruta.unlink(missing_ok=True)
+            ruta_firma(ruta).unlink(missing_ok=True)
+            log.warning("Modelo %s rechazado: %s", version, "; ".join(problemas))
+            raise ValueError("El modelo nuevo no alcanza la calidad mínima (" + "; ".join(problemas) + "). Se mantiene el modelo anterior.")
         with self._lock:
             self._cache = None
         log.info("Modelo %s entrenado: AUC %.3f, %d muestras", version, resultado.auc, resultado.muestras)
@@ -189,7 +200,23 @@ def _fila_modelo(r) -> dict:
         "datosSinteticos": bool(r["DatosSinteticos"]),
         "activo": bool(r["Activo"]),
         "coeficientes": json.loads(r["Coeficientes"]),
+        "brier": _decimal(r, "Brier"),
+        "brierBase": _decimal(r, "BrierBase"),
+        "calibracion": json.loads(r["Calibracion"]) if _tiene(r, "Calibracion") else [],
+        "observaciones": r["Observaciones"] if _tiene(r, "Observaciones") else None,
     }
+
+
+def _tiene(r, columna: str) -> bool:
+    try:
+        v = r[columna]
+    except KeyError:
+        return False
+    return v is not None and not (isinstance(v, float) and v != v)
+
+
+def _decimal(r, columna: str) -> float | None:
+    return float(r[columna]) if _tiene(r, columna) else None
 
 
 servicio = ServicioInasistencia()

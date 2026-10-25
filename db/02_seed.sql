@@ -137,7 +137,7 @@ JOIN dbo.Financiadores f ON f.Codigo = x.Fin
 LEFT JOIN dbo.PlanesSalud pl ON pl.FinanciadorId = f.Id AND pl.Codigo = x.PlanCod;
 
 /* ---------- Usuarios (contraseña: Demo1234!) ---------- */
-DECLARE @Hash VARCHAR(100) = '$2a$11$LKYLu7WF9Zs7E/NLZXjOauZFoGu/yz5ffOdvh1265UxBSZngaCTOW';
+DECLARE @Hash VARCHAR(100) = '$2a$11$LKYLu7WF9Zs7E/NLZXjOauZFoGu/yz5ffOdvh1265UxBSZngaCTOW';  -- nosemgrep: detected-bcrypt-hash (hash de la clave demo publicada Demo1234!)
 
 INSERT INTO dbo.Usuarios (Email, PasswordHash, Rol, NombreVisible, SedeId) VALUES
  (N'admin@reservamed.cl',     @Hash, 'ADMIN',     N'Administrador',       NULL),
