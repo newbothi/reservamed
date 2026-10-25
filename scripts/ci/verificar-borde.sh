@@ -48,8 +48,11 @@ grep -qi "^server: kestrel" <<<"$api_cab" && fallo "M8 Kestrel" "Se expone Serve
 # ---------------- C2: Webpay simulado ----------------
 cuerpo=$("${CURL[@]}" "$BASE/webpay-mock/pagar?token_ws=x")
 grep -qi "webpay" <<<"$cuerpo" && fallo "C2 webpay-mock" "NGINX publica la página simulada" || bien "C2 NGINX no publica /webpay-mock/"
-interno=$(dc exec -T nginx wget -S -q -O /dev/null https://api-core:8443/webpay-mock/pagar 2>&1)
-grep -q "404" <<<"$interno" && bien "C2 la API (Production) responde 404 en /webpay-mock/" || fallo "C2 controlador" "La API respondió: $(head -c 200 <<<"$interno")"
+# F5: la API atiende por HTTPS interno; se consulta desde la red "app" validando con la CA local.
+interno=$(docker run --rm --network reservamed_app -v "$PWD/certs/ca.pem:/ca.pem:ro" \
+  curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6 \
+  -s --cacert /ca.pem -o /dev/null -w '%{http_code}' https://api-core:8443/webpay-mock/pagar 2>&1)
+grep -q "^404$" <<<"$interno" && bien "C2 la API (Production) responde 404 en /webpay-mock/" || fallo "C2 controlador" "La API respondió: $(head -c 200 <<<"$interno")"
 
 # ---------------- A5 / M9: puertos y red interna ----------------
 mailpit=$(dc port mailpit 8025 2>&1)
