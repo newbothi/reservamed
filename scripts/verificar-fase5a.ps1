@@ -375,8 +375,10 @@ foreach ($s in $cfg.Keys) {
 Revisar 'V6.4.1' ($claves.Count -gt 0 -and $envDocker['JWT_KEY'] -and $expuestos.Count -eq 0) 'Ningun secreto de la aplicacion aparece en docker inspect (entorno de 7 contenedores)' "Secretos en el entorno: $($expuestos -join ', ')"
 $faltan = @($claves | Where-Object { -not (Test-Path (Join-Path $raiz "secretos/$_")) })
 Revisar 'V6.4.1' ($faltan.Count -eq 0) "Los $($claves.Count) secretos estan en secretos/ (montados en /run/secrets)" "Faltan en secretos/: $($faltan -join ', ')"
-$ignorado = (git -C $raiz check-ignore secretos/JWT_KEY 2>$null)
-Revisar 'V6.4.1' ([bool]$ignorado) 'secretos/ esta en .gitignore' 'secretos/ no esta ignorado por git'
+# La carpeta del proyecto puede no ser un repositorio git (copia de trabajo): se revisa .gitignore.
+$ignorado = @(Get-Content (Join-Path $raiz '.gitignore') -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -match '^/?secretos/?$' }).Count -gt 0
+if (-not $ignorado -and (Test-Path (Join-Path $raiz '.git'))) { $ignorado = [bool](git -C $raiz check-ignore secretos/JWT_KEY 2>$null) }
+Revisar 'V6.4.1' $ignorado 'secretos/ esta en .gitignore' 'secretos/ no esta en .gitignore'
 
 # ---------------------------------------------------------------- Registro con consentimiento
 Seccion 'V8.3.3 - Politica de privacidad y consentimiento'
