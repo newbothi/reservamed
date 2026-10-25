@@ -140,6 +140,8 @@ public sealed class MatrizAutorizacionTests(ApiFactory api)
         Solo("Cuenta: reautenticar", "POST", "/api/cuenta/reautenticar", StaffYMedico, new { }),
         Solo("Cuenta: exportar mis datos", "GET", "/api/cuenta/datos", Pacientes),
         Solo("Cuenta: solicitar eliminación", "POST", "/api/cuenta/eliminacion", Pacientes, new { }),
+        Solo("Alertas de seguridad", "GET", "/api/seguridad/alertas", [Rol.Admin]),
+        Solo("Marcar alerta revisada", "POST", "/api/seguridad/alertas/999999/revisada", [Rol.Admin], new { }),
 
         // ---------- Públicos ----------
         Solo("Disponibilidad", "GET", "/api/agenda/disponibilidad?especialidadId=1&desde=2030-01-07&hasta=2030-01-08", Todos),

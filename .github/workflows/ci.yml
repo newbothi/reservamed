@@ -300,6 +300,27 @@ jobs:
       - name: Gate Trivy (sin críticas)
         if: success() || failure()
         run: python3 scripts/ci/anotar.py trivy trivy-*.json
+      - name: SBOM CycloneDX (ASVS V14.2.5)
+        if: success() || failure()
+        run: |
+          # Inventario de componentes de cada imagen (y del código fuente): qué versión de qué paquete
+          # quedó en el release. Se guarda como artefacto y se valida que tenga componentes.
+          mkdir -p sbom
+          for img in api-core worker bff ml-service nginx; do
+            trivy image --quiet --format cyclonedx --output "sbom/sbom-$img.cdx.json" "reservamed-$img"
+          done
+          trivy fs --quiet --format cyclonedx --output sbom/sbom-fuentes.cdx.json .
+          python3 - <<'PY'
+          import json, glob, sys
+          malos = []
+          for f in sorted(glob.glob("sbom/*.cdx.json")):
+              d = json.load(open(f))
+              n = len(d.get("components", []))
+              print(f"::notice title=SBOM::{f}: {n} componentes ({d.get('bomFormat')} {d.get('specVersion')})")
+              if d.get("bomFormat") != "CycloneDX" or n == 0: malos.append(f)
+          if malos:
+              print(f"::error title=SBOM vacío::{', '.join(malos)}"); sys.exit(1)
+          PY
       - name: Registros si algo falló
         if: failure()
         run: |
@@ -318,6 +339,7 @@ jobs:
           path: |
             zap/
             trivy-*.json
+            sbom/
           retention-days: 14
 
   seguridad:

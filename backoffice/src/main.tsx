@@ -8,6 +8,9 @@ import Admision from './paginas/Admision';
 import Pacientes from './paginas/Pacientes';
 import Auditoria from './paginas/Auditoria';
 import Modelos from './paginas/Modelos';
+import Usuarios from './paginas/Usuarios';
+import Seguridad from './paginas/Seguridad';
+import MiCuenta from './paginas/MiCuenta';
 import './estilos.css';
 
 function App() {
@@ -48,6 +51,9 @@ function App() {
           {staff && <NavLink to="/pacientes">Pacientes</NavLink>}
           {sesion.rol === 'ADMIN' && <NavLink to="/ml">Machine learning</NavLink>}
           {sesion.rol === 'ADMIN' && <NavLink to="/auditoria">Auditoría</NavLink>}
+          {sesion.rol === 'ADMIN' && <NavLink to="/usuarios">Usuarios</NavLink>}
+          {sesion.rol === 'ADMIN' && <NavLink to="/seguridad">Seguridad</NavLink>}
+          <NavLink to="/mi-cuenta">Mi cuenta</NavLink>
           <button className="link" onClick={salir}>Salir ({sesion.nombre})</button>
         </nav>
       </header>
@@ -58,6 +64,9 @@ function App() {
           {staff && <Route path="/admision/:id" element={<Admision />} />}
           {sesion.rol === 'ADMIN' && <Route path="/ml" element={<Modelos />} />}
           {sesion.rol === 'ADMIN' && <Route path="/auditoria" element={<Auditoria />} />}
+          {sesion.rol === 'ADMIN' && <Route path="/usuarios" element={<Usuarios />} />}
+          {sesion.rol === 'ADMIN' && <Route path="/seguridad" element={<Seguridad />} />}
+          <Route path="/mi-cuenta" element={<MiCuenta />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

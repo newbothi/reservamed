@@ -4,7 +4,7 @@ import { api, EVENTO_SESION_TERMINADA, Usuario } from './api';
 interface Ctx {
   /** undefined mientras se consulta al BFF; null sin sesión. */
   sesion: Usuario | null | undefined;
-  entrar: (u: Usuario) => void;
+  entrar: (u: Usuario | null) => void;
   salir: () => Promise<void>;
 }
 

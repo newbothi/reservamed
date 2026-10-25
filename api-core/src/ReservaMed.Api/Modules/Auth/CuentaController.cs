@@ -156,7 +156,7 @@ public sealed class CuentaController(
         object cuenta = await cn.QuerySingleAsync(
             "SELECT Email, CreadoEn, PrivacidadAceptadaEn FROM dbo.Usuarios WHERE Id = @Id", new { Id = User.UsuarioId() });
         var prevision = await cn.QueryAsync("""
-            SELECT f.Nombre AS Financiador, pl.Nombre AS Plan, pv.TramoFonasa, pv.EsCarga, pv.AfiliadoRut, pv.AfiliadoNombre
+            SELECT f.Nombre AS Financiador, pl.Nombre AS PlanSalud, pv.TramoFonasa, pv.EsCarga, pv.AfiliadoRut, pv.AfiliadoNombre
             FROM dbo.Previsiones pv
             JOIN dbo.Financiadores f ON f.Id = pv.FinanciadorId
             LEFT JOIN dbo.PlanesSalud pl ON pl.Id = pv.PlanSaludId

@@ -75,6 +75,7 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         Environment.SetEnvironmentVariable("Seguridad__LoginPorMinutoPorIp", "10000");
         Environment.SetEnvironmentVariable("Seguridad__RenovarPorMinutoPorIp", "10000");
         Environment.SetEnvironmentVariable("Seguridad__UrlPortal", "https://portal.prueba");
+        Environment.SetEnvironmentVariable("Alertas__Activas", "false");   // las pruebas evalúan las alertas a mano
         Environment.SetEnvironmentVariable("Huella__Clave", ClaveHuellaPrueba);
     }
 

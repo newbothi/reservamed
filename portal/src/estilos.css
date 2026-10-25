@@ -119,3 +119,14 @@ button.link { background: none; color: var(--sutil); padding: 0; font-weight: 50
 .medidor.n1 { color: var(--alerta, #b54708); }
 .medidor.n2 { color: var(--info, #175cd3); }
 .medidor.n3 { color: var(--ok, #067647); }
+
+/* Fase 5: contraseña visible (V2.1.12) y "Mi cuenta" */
+.campo-clave { display: flex; gap: .4rem; align-items: stretch; }
+.campo-clave input { flex: 1; min-width: 0; }
+.ver-clave { padding: .3rem .7rem; font-size: .8rem; background: var(--borde); color: var(--texto); }
+.peligro { border-color: var(--error); }
+.peligro h2 { color: var(--error); }
+button.secundario { background: var(--borde); color: var(--texto); }
+button.rojo { background: var(--error); }
+.legal h2 { font-size: 1.05rem; margin-top: 1.2rem; }
+.legal li { margin: .25rem 0; }

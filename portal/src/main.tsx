@@ -7,6 +7,8 @@ import Buscar from './paginas/Buscar';
 import Reservar from './paginas/Reservar';
 import MisCitas from './paginas/MisCitas';
 import RetornoPago from './paginas/RetornoPago';
+import MiCuenta from './paginas/MiCuenta';
+import Privacidad from './paginas/Privacidad';
 import { Login, Registro, VerificarCorreo } from './paginas/Acceso';
 import './estilos.css';
 
@@ -24,6 +26,7 @@ function Cabecera() {
       <nav>
         <NavLink to="/" end>Reservar hora</NavLink>
         {sesion && <NavLink to="/mis-citas">Mis citas</NavLink>}
+        {sesion && <NavLink to="/mi-cuenta">Mi cuenta</NavLink>}
         {sesion ? (
           <button className="link" onClick={salir}>Salir ({sesion.nombre})</button>
         ) : (
@@ -47,11 +50,13 @@ function App() {
             <Route path="/verificar-correo" element={<VerificarCorreo />} />
             <Route path="/reservar" element={<Privada><Reservar /></Privada>} />
             <Route path="/mis-citas" element={<Privada><MisCitas /></Privada>} />
+            <Route path="/mi-cuenta" element={<Privada><MiCuenta /></Privada>} />
+            <Route path="/privacidad" element={<Privacidad />} />
             <Route path="/pago/retorno" element={<Privada><RetornoPago /></Privada>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
-        <footer className="pie">ReservaMed · proyecto de portafolio · datos ficticios</footer>
+        <footer className="pie">ReservaMed · proyecto de portafolio · datos ficticios · <Link to="/privacidad">Privacidad</Link></footer>
       </ProveedorSesion>
     </BrowserRouter>
   );

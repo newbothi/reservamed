@@ -144,6 +144,9 @@ builder.Services.AddSingleton<PublicadorRabbit>();
 builder.Services.AddHostedService<PublicadorOutbox>();
 builder.Services.AddHostedService<ExpiracionReservasJob>();
 builder.Services.AddHostedService<RecordatoriosJob>();
+builder.Services.Configure<OpcionesAlertas>(builder.Configuration.GetSection("Alertas"));
+builder.Services.AddSingleton<ServicioAlertas>();
+builder.Services.AddHostedService<AlertasSeguridadJob>();
 
 // ---------- Web ----------
 builder.Services.AddControllers(o => o.Filters.Add<FiltroValidacion>())

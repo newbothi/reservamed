@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, ErrorApi, Sesion } from './api';
+import { CampoClave } from './CampoClave';
 
 type Paso =
   | { tipo: 'clave' }
@@ -89,7 +90,7 @@ export function Login({ alEntrar }: { alEntrar: (s: Sesion) => void }) {
         <form className="tarjeta centrada formulario" onSubmit={conClave}>
           <h1>Backoffice clínica</h1>
           <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></label>
-          <label>Contraseña<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
+          <label>Contraseña<CampoClave value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
           {error && <p className="error">{error}</p>}
           <button type="submit" disabled={enviando}>Continuar</button>
           <p className="sutil demo">

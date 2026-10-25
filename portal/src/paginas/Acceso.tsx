@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, destinoSeguro, ErrorApi, formatearRut, fortaleza, pruebaAntiBots, Usuario } from '../api';
 import { useSesion } from '../sesion';
 import type { Catalogo } from './Buscar';
+import { CampoClave } from '../CampoClave';
 
 function useDestino() {
   const [params] = useSearchParams();
@@ -38,7 +39,7 @@ export function Login() {
     <form className="tarjeta centrada formulario" onSubmit={enviar}>
       <h1>Ingresar</h1>
       <label>Correo<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-      <label>Contraseña<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+      <label>Contraseña<CampoClave value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
       {error && <p className="error">{error}</p>}
       <button type="submit">Ingresar</button>
       <p className="sutil">¿No tiene cuenta? <Link to={`/registro?volver=${encodeURIComponent(destino)}`}>Regístrese</Link></p>
@@ -53,6 +54,7 @@ export function Registro() {
     rut: '', nombres: '', apellidoPaterno: '', apellidoMaterno: '', fechaNacimiento: '', sexo: 'F',
     email: '', telefono: '', comuna: '', password: '',
     financiadorId: '', planSaludId: '', tramoFonasa: '', esCarga: false, afiliadoRut: '', afiliadoNombre: '',
+    aceptaPrivacidad: false,
   });
   const [errores, setErrores] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
@@ -123,7 +125,7 @@ export function Registro() {
         <label>Celular<input value={f.telefono} onChange={cambiar('telefono')} placeholder="+56 9 1234 5678" /></label>
         <label>Comuna<input value={f.comuna} onChange={cambiar('comuna')} /></label>
         <label>Contraseña
-          <input type="password" value={f.password} onChange={cambiar('password')} minLength={12} maxLength={128} autoComplete="new-password" required />
+          <CampoClave value={f.password} onChange={cambiar('password')} minLength={12} maxLength={128} autoComplete="new-password" required />
           {f.password && <span className={`medidor n${fuerza.nivel}`}>{fuerza.texto}</span>}
         </label>
       </div>
@@ -168,9 +170,13 @@ export function Registro() {
         </>
       )}
 
+      <label className="check">
+        <input type="checkbox" checked={f.aceptaPrivacidad} onChange={(e) => setF({ ...f, aceptaPrivacidad: e.target.checked })} required />
+        <span>Leí y acepto la <Link to="/privacidad" target="_blank" rel="noopener">política de privacidad</Link>: para qué usamos mis datos, por cuánto tiempo y cómo ejercer mis derechos.</span>
+      </label>
+
       {errores.map((x) => <p key={x} className="error">{x}</p>)}
-      <button type="submit" disabled={enviando}>{enviando ? 'Verificando…' : 'Crear cuenta'}</button>
-      <p className="sutil">Sus datos se tratan conforme a la Ley 19.628 y la Ley 20.584.</p>
+      <button type="submit" disabled={enviando || !f.aceptaPrivacidad}>{enviando ? 'Verificando…' : 'Crear cuenta'}</button>
     </form>
   );
 }
