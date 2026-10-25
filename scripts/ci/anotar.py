@@ -74,8 +74,13 @@ def trx(ruta: Path) -> int:
         if fallidas <= 25:
             print(f"::error title=Prueba fallida: {esc(r.get('testName', '')[-120:])}::{esc(msg[:1500] + chr(10) + chr(10).join(pila))}")
     c = raiz.find(".//t:ResultSummary/t:Counters", ns)
+    total = int(c.get("total", 0)) if c is not None else 0
     if c is not None:
         print(f"::notice title=Pruebas {ruta.stem}::{c.get('passed')} pasaron, {c.get('failed')} fallaron de {c.get('total')}")
+    if total == 0:
+        # Un cambio de runner o de framework puede dejar las pruebas sin descubrir: eso también falla.
+        print(f"::error title=Pruebas {ruta.stem}::No se ejecutó ninguna prueba")
+        return 1
     return 1 if fallidas else 0
 
 

@@ -33,9 +33,7 @@ public sealed partial class ApiFactory : WebApplicationFactory<Program>, IAsyncL
         ["TDE_PASS"] = "Rm1!pruebas-Tde-8xQ5vL2n",
     };
 
-    private readonly MsSqlContainer _sql = new MsSqlBuilder()
-        .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
-        .Build();
+    private readonly MsSqlContainer _sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
 
     /// <summary>Cadena con la que corre la API (usuario rm_api).</summary>
     public string CadenaApi { get; private set; } = "";
