@@ -1,0 +1,17 @@
+{
+  "name": "reservamed-e2e",
+  "private": true,
+  "description": "F5b: pruebas de punta a punta (Playwright) y accesibilidad (axe) contra el sistema levantado con docker compose",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
+    "@playwright/test": "1.56.0",
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "playwright-core": "1.56.0"
+  }
+}

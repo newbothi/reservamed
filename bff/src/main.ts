@@ -30,7 +30,8 @@ class HealthController {
 @Module({
   imports: [
     // Límite de peticiones por IP: protege login y reservas de abuso (bots que acaparan horas).
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // Límite por IP (además del de NGINX). La prueba de carga lo sube para simular muchos usuarios distintos.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: Math.max(1, Number(process.env.BFF_LIMITE_POR_MINUTO ?? 120)) }]),
   ],
   controllers: [HealthController, AuthController, BackofficeController, LectorController, PowController, CatalogoController, AgendaController, CitasController, PagosController, CuentaController],
   providers: [CoreClient, GestorSesion, ServicioPow, { provide: APP_GUARD, useClass: ThrottlerGuard }],

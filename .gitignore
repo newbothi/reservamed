@@ -39,3 +39,5 @@ verificacion-fase*.txt
 respaldos/
 # F5: Docker secrets locales (un archivo por secreto)
 secretos/
+# F5b: resultado local de k6
+k6/resultado.json

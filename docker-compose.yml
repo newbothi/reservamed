@@ -235,6 +235,7 @@ services:
       BFF_TLS_KEY: /certs/bff.key
       TRUSTED_PROXIES: 172.30.1.10   # A4: solo NGINX
       BFF_ORIGENES: https://reservamed.localhost,https://localhost
+      BFF_LIMITE_POR_MINUTO: ${BFF_LIMITE_POR_MINUTO:-120}   # por IP; la prueba de carga (k6) lo sube
       # F3 (C3): el BFF hace de lector biométrico simulado de cada sede (en producción, el dispositivo).
       HUELLA_LECTORES: "1:LECTOR-PROV-01,2:LECTOR-LC-01"
     # F2 (A1): BFF_SESSION_KEY sella la cookie de sesión; HUELLA_KEY firma como lector simulado (C3).

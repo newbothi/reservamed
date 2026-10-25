@@ -96,7 +96,8 @@ def semgrep(ruta: Path) -> int:
     for r in res[:40]:
         print(f"::error file={r['path']},line={r['start']['line']},title=Semgrep {esc(r['check_id'].split('.')[-1])}::"
               f"{esc(r['extra'].get('message', '')[:300])}")
-    print(f"::notice title=Semgrep::{len(res)} hallazgos, {len(datos.get('errors', []))} errores de análisis")
+    lista = [f"{r['path']}:{r['start']['line']} {r['check_id'].split('.')[-1]}" for r in res]
+    print(f"::notice title=Semgrep::{len(res)} hallazgos, {len(datos.get('errors', []))} errores de análisis%0A{esc(chr(10).join(lista))}")
     return 1 if res else 0
 
 
@@ -147,7 +148,7 @@ def dotnet(ruta: Path) -> int:
                     malos.append(f"{Path(p.get('path', '')).name}: {pkg.get('id')} {pkg.get('resolvedVersion')} ({v.get('severity')}) {v.get('advisoryurl')}")
     for m in sorted(set(malos)):
         print(f"::error title=NuGet vulnerable::{esc(m)}")
-    print(f"::notice title=NuGet::{len(set(malos))} paquetes vulnerables")
+    print(f"::notice title=NuGet::{len(set(malos))} paquetes vulnerables%0A{esc(chr(10).join(sorted(set(malos))))}")
     return 1 if malos or not ruta.is_file() else 0
 
 
