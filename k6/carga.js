@@ -1,5 +1,7 @@
 // F5b: prueba de carga con k6 contra el borde (NGINX → BFF → API → SQL Server).
-//   docker run --rm --network host -v ./k6:/k6 -v ./certs/ca.pem:/ca.pem:ro -e SSL_CERT_FILE=/ca.pem grafana/k6:1.3.0 run /k6/carga.js
+//   docker run --rm --network reservamed_app --add-host reservamed.localhost:172.30.1.10 -v ./k6:/k6 \
+//     -v ./certs/ca.pem:/ca.pem:ro -e SSL_CERT_FILE=/ca.pem -e BASE_URL=https://reservamed.localhost:8443 grafana/k6:1.3.0 run /k6/carga.js
+//   (scripts/verificar-fase5b.ps1 lo hace en el PC; NGINX valida el Host y el certificado es de la CA local)
 // Escenarios:
 //   navegacion — pacientes buscando horas (catálogo y disponibilidad) a ritmo constante, por debajo
 //                del límite por IP de NGINX (20/s): mide latencia y errores.
@@ -14,6 +16,7 @@ const limitadas = new Counter('rafaga_429');
 const errores5xx = new Rate('errores_5xx');
 
 export const options = {
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     navegacion: {
       executor: 'constant-arrival-rate', rate: 12, timeUnit: '1s', duration: '60s',

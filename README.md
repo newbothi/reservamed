@@ -207,9 +207,20 @@ sintético y entrena el primer modelo (uno o dos minutos).
 | SBOM | Inventario CycloneDX de cada imagen en CI |
 | ASVS | 145 requisitos: 136 cumple, 8 no aplica, 1 riesgo aceptado (HSM, documentado), 0 brechas |
 
+**Fase 5b (calidad y release v2.0):**
+
+| | |
+|---|---|
+| Seguridad en CI | Bloquea el merge: Semgrep (SAST), Trivy (dependencias, Dockerfiles, IaC y secretos), `npm audit`, `pip-audit` y paquetes NuGet vulnerables. Las acciones de GitHub están fijadas por SHA |
+| E2E | Playwright (`e2e/`): reserva y anulación en el portal, Mi cuenta, privacidad, ingreso con TOTP y administración de usuarios en el backoffice |
+| Accesibilidad | axe-core en las pantallas principales: WCAG 2.1 AA sin violaciones serias ni críticas |
+| Carga | k6 (`k6/carga.js`): búsqueda de horas a ritmo constante con p95 < 800 ms y < 1 % de errores; una ráfaga debe topar el límite por IP de NGINX |
+| Machine learning | Un modelo nuevo solo se activa si supera la calidad mínima (AUC y calibración); revisión de equidad por sexo, previsión, edad y sede en la [ficha del modelo](docs/ml/ficha-modelo.md) |
+| Cambios | Resumen de las seis fases en [`CHANGELOG.md`](CHANGELOG.md) |
+
 La **matriz rol × endpoint** (cada endpoint con anónimo, dos pacientes, recepción de cada sede, médico y admin) corre en CI y falla si aparece un endpoint sin caso.
 
-Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1`, `scripts\verificar-fase3.ps1`, `scripts\verificar-fase4.ps1` y `scripts\verificar-fase5a.ps1` (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
+Verificación en su PC: `powershell -ExecutionPolicy Bypass -File scripts\verificar-fase2.ps1`, `scripts\verificar-fase3.ps1`, `scripts\verificar-fase4.ps1`, `scripts\verificar-fase5a.ps1` y `scripts\verificar-fase5b.ps1` (esta última necesita Node.js 22 para las pruebas E2E) (crea un paciente ficticio, reservas que anula al final, y usa la cuenta `qa@reservamed.cl`, cuyo autenticador guarda en `certs\qa-totp.txt`).
 
 Para inspeccionar la base o la consola de RabbitMQ (solo en `127.0.0.1`):
 

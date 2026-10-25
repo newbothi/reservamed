@@ -11,7 +11,8 @@ test.describe('Backoffice', () => {
     await expect(page.locator('table.tabla tbody tr').first()).toBeVisible();
 
     // Acción sensible: pide el código del autenticador antes de ejecutarse (V3.7.1).
-    const fila = page.locator('table.tabla tbody tr').filter({ hasText: 'PACIENTE' }).filter({ has: page.getByRole('button', { name: 'Desactivar' }) }).first();
+    // Se abre el diálogo y se cancela: ninguna cuenta se modifica.
+    const fila = page.locator('table.tabla tbody tr').filter({ hasNotText: 'qa@reservamed.cl' }).filter({ has: page.getByRole('button', { name: 'Desactivar' }) }).first();
     await fila.getByRole('button', { name: 'Desactivar' }).click();
     await expect(page.getByRole('dialog', { name: 'Confirme su identidad' })).toBeVisible();
     await page.getByRole('button', { name: 'Cancelar' }).click();

@@ -13,6 +13,7 @@ test.describe('Accesibilidad', () => {
 
   test('portal con sesión: búsqueda, Mis citas y Mi cuenta', async ({ page }) => {
     await entrarPaciente(page, 'benjamin@demo.cl');
+    await page.goto('/');
     await page.getByLabel('Especialidad').selectOption({ index: 1 });
     await page.locator('button.hora').first().waitFor();
     await sinViolacionesGraves(page, 'búsqueda con horas');
