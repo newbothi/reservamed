@@ -7,5 +7,5 @@ numpy==2.5.4
 scikit-learn==1.7.2
 joblib==1.5.2
 pyodbc==5.3.0
-aio-pika==9.5.7
+aio-pika==10.2.1
 tzdata==2026.5
