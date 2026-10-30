@@ -11,7 +11,7 @@
     "test:cov": "vitest run --coverage"
   },
   "dependencies": {
-    "@nestjs/common": "^11.1.6",
+    "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
     "@nestjs/throttler": "^6.4.0",
